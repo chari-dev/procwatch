@@ -214,6 +214,15 @@ g.shift{will-change:transform}
 .setrow.wide small{grid-column:1}
 .setrow code{background:var(--raise);border-radius:4px;padding:1px 5px;
  font-size:11px}
+.sharekey{margin-top:12px;padding:10px 12px;border:1px solid var(--line);
+ border-radius:9px;background:var(--raise);font-size:12px;color:var(--ink3)}
+.sharekey b{display:block;margin-top:5px;font-size:15px;letter-spacing:.02em;
+ color:var(--ink);font-weight:560;user-select:all;cursor:text}
+.sharekey{margin-top:12px;padding:10px 12px;border:1px solid var(--line);
+ border-radius:9px;background:var(--raise);font-size:11.5px;color:var(--ink3);
+ line-height:1.5}
+.sharekey b{display:block;margin-top:6px;font-size:15px;letter-spacing:.02em;
+ color:var(--ink);font-weight:560;user-select:all;cursor:text}
 .alertadd{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
 .alertadd input,.alertadd select{height:28px;padding:0 8px;font:inherit;
  font-size:12px;color:var(--ink);background:var(--raise);border-radius:7px;
@@ -536,6 +545,8 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
       <small>On the other Mac run <code>procwatch share</code>. It prints three
         words &mdash; type them here with its address. That port is read-only:
         no process can be ended and no database copied through it.</small>
+      <div class="sharekey" id="sharekey" hidden></div>
+      <div class="sharekey" id="sharekey" hidden></div>
     </div>
 
     <div class="setrow wide">
@@ -2415,6 +2426,33 @@ var openSettings = function (open) {
     return '<label><input type="checkbox" data-chart-toggle="' + c.id + '"' +
       (isHidden(c.id) ? "" : " checked") + ">" + esc(c.name) + "</label>";
   }).join("");
+  // This machine's own key, for setting it up as a device somewhere else.
+  // Only ever shown for this Mac: a peer's key is not the dashboard's to
+  // display, and the relay never returns one.
+  var keyBox = document.getElementById("sharekey");
+  if (keyBox) {
+    var mine = isLocal() && META && META.share_key;
+    keyBox.hidden = !mine;
+    if (mine) {
+      keyBox.innerHTML = "To let another Mac watch <em>this</em> one, run " +
+        "<code>procwatch share</code> here and give it these words:<b>" +
+        esc(META.share_key) + "</b>";
+    }
+  }
+  // This machine's own key, so it can be read off the screen instead of only
+  // from the terminal that started `share`. Shown for this Mac alone: a
+  // device's key is not the dashboard's to display, and the relay never
+  // returns one.
+  var keyBox = document.getElementById("sharekey");
+  if (keyBox) {
+    var mine = isLocal() && META && META.share_key;
+    keyBox.hidden = !mine;
+    if (mine) {
+      keyBox.innerHTML = "To let another Mac watch <em>this</em> one, run " +
+        "<code>procwatch share</code> here and give it these words:<b>" +
+        esc(META.share_key) + "</b>";
+    }
+  }
   var exporter = document.getElementById("doexport");
   if (exporter) {
     var end = END === null ? nowSeconds() : END;

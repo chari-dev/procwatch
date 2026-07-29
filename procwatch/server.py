@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from . import (alerts, archive, config, db, live, netstat, peers, procs,
-               query, storage, system)
+               query, share, storage, system)
 
 IDLE_TIMEOUT = 900
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -69,6 +69,15 @@ def api_get(conn, path, params):
 
     if path == "/api/info":
         info = system.machine_info()
+        # This machine's sharing key, so it can be read off the screen rather
+        # than only from the terminal that started `share`. Local only: the
+        # relay never reaches this branch for a peer, because a peer answers
+        # /api/info with its own -- and a device's key is not something the
+        # dashboard should be able to collect from the machines it watches.
+        try:
+            info["share_key"] = share.key(conn)
+        except Exception:
+            info["share_key"] = ""
         # This machine's own clock. Two Macs can disagree by hours -- these
         # two do -- so anything derived from a timestamp has to be worked out
         # against the clock that produced it. Without this a peer's "last

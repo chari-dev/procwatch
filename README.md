@@ -157,6 +157,10 @@ python3 procwatch.py alert '*' --metric cpu --above 80 --for 10m
 python3 procwatch.py alert --remove 1
 ```
 
+**Your sharing key** is in settings, and from a terminal with
+`python3 procwatch.py key`. `--new` makes a fresh one, which every device you
+have already set up will then need.
+
 **Disk space by application** is measured once a day — it is a size, not a
 rate — and counts the bundle, its data in Application Support, and its caches
 together. That last part is usually the answer: an app's download size is

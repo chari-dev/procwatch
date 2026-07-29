@@ -1,5 +1,5 @@
-"""procwatch install | open | serve | record | share | peer | app | backup |
-restore | alert | status | uninstall"""
+"""procwatch install | open | serve | record | share | key | peer | app |
+backup | restore | alert | status | uninstall"""
 import argparse
 import json
 import os
@@ -208,6 +208,10 @@ def main(argv=None):
     peerer.add_argument("--key", default="",
                         help="the three words that machine printed")
 
+    keyer = sub.add_parser("key")
+    keyer.add_argument("--new", action="store_true",
+                       help="forget the old key and make a new one")
+
     sharer = sub.add_parser("share")
     sharer.add_argument("--port", type=int, default=share.DEFAULT_PORT)
     sharer.add_argument("--new-key", action="store_true",
@@ -250,6 +254,14 @@ def main(argv=None):
         return _fetch(args.path, args.query)
     if args.command == "peer":
         return _peer(args)
+    if args.command == "key":
+        conn = db.connect(config.DB_PATH)
+        try:
+            secret = share.key(conn, reset=args.new)
+        finally:
+            conn.close()
+        print(secret)
+        return 0
     if args.command == "share":
         return share.serve(args.port, reset=args.new_key)
     if args.command == "app":
