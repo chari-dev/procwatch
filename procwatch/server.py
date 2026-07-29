@@ -78,6 +78,10 @@ def api_get(conn, path, params):
             info["share_key"] = share.key(conn)
             info["share_host"] = share.local_address()
             info["share_port"] = share.DEFAULT_PORT
+            # Present only when this Mac is on a private network. When it is,
+            # it is the address to hand out: it works from anywhere and the
+            # traffic is encrypted, which the local one is not.
+            info["share_vpn"] = share.tailscale_address()
         except Exception:
             info["share_key"] = ""
             info["share_host"] = ""

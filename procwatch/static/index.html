@@ -214,10 +214,14 @@ g.shift{will-change:transform}
 .setrow.wide small{grid-column:1}
 .setrow code{background:var(--raise);border-radius:4px;padding:1px 5px;
  font-size:11px}
-.sharekey{margin-top:12px;padding:10px 12px;border:1px solid var(--line);
- border-radius:9px;background:var(--raise);font-size:12px;color:var(--ink3)}
-.sharekey b{display:block;margin-top:5px;font-size:15px;letter-spacing:.02em;
- color:var(--ink);font-weight:560;user-select:all;cursor:text}
+.advice{margin-top:12px;padding:11px 13px;border-radius:9px;
+ border:1px solid var(--line);background:var(--raise);font-size:11.5px;
+ line-height:1.6;color:var(--ink3)}
+.advice b{color:var(--ink2);font-weight:560}
+.advice ul{margin:6px 0 0;padding-left:17px}
+.advice li{margin:2px 0}
+.advice .ok{color:var(--s3)}
+.advice code{background:var(--card);border-radius:4px;padding:1px 5px}
 .sharekey{margin-top:12px;padding:10px 12px;border:1px solid var(--line);
  border-radius:9px;background:var(--raise);font-size:11.5px;color:var(--ink3);
  line-height:1.5}
@@ -548,6 +552,7 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
       <small>On the other Mac run <code>procwatch share</code>. It prints three
         words &mdash; type them here with its address. That port is read-only:
         no process can be ended and no database copied through it.</small>
+      <div class="advice" id="netadvice"></div>
       <div class="sharekey" id="sharekey" hidden></div>
       <div class="sharekey" id="sharekey" hidden></div>
     </div>
@@ -2151,7 +2156,8 @@ var renderDevices = function () {
   select.innerHTML = '<option value="">This Mac</option>' +
     DEVICES.map(function (d) {
       return '<option value="' + esc(d.name) + '">' + esc(d.name) + "</option>";
-    }).join("");
+    }).join("") +
+    '<option value="__add__">Add a Mac\u2026</option>';
   select.value = DEVICE || "";
   // A reader looking at another machine should not be able to mistake it for
   // this one, and should not be offered actions that only work here.
@@ -2249,7 +2255,19 @@ var selectDevice = function (name) {
     });
 };
 
-on("device", "change", function (e) { selectDevice(e.target.value); });
+on("device", "change", function (e) {
+  if (e.target.value === "__add__") {
+    // Not a machine: put the switcher back and open the place devices are
+    // added, rather than leaving it selected on something that does not exist.
+    e.target.value = DEVICE || "";
+    openSettings(true);
+    var box = document.getElementById("devname");
+    if (box && box.scrollIntoView) { box.scrollIntoView({block: "center"}); }
+    if (box && box.focus) { box.focus(); }
+    return;
+  }
+  selectDevice(e.target.value);
+});
 
 var loadStorage = function () {
   var el = document.getElementById("storagebody");
@@ -2436,6 +2454,41 @@ var openSettings = function (open) {
   // from the terminal that started `share`. Shown for this Mac alone: a
   // device's key is not the dashboard's to display, and the relay never
   // returns one.
+  /* What to do when the machines are not on the same network.
+     
+     The honest answer is not "forward a port": the key travels as a plain
+     header over plain HTTP, and command lines -- which routinely carry tokens
+     and paths -- are part of what this serves. Encryption and identity are
+     someone else's solved problem, so the advice is to use one of theirs and
+     leave this port on a private network. */
+  var advice = document.getElementById("netadvice");
+  if (advice) {
+    var vpn = META && META.share_vpn;
+    advice.innerHTML =
+      "<b>On the same network?</b> Use the address below and you are done." +
+      "<br><b>Different networks, or over the internet?</b> Do not forward a " +
+      "port for this. The key is sent as plain text and command lines can " +
+      "contain tokens and paths, so anyone on the route could read both. Put " +
+      "the two Macs on a private network instead and use the address that " +
+      "gives you &mdash; nothing here needs changing." +
+      (vpn
+        ? '<br><span class="ok">This Mac is already on one: <b>' + esc(vpn) +
+          "</b> &mdash; hand out that address rather than the local one.</span>"
+        : "") +
+      "<ul>" +
+      "<li><b>Tailscale</b> &mdash; least work. Install on both Macs; each " +
+      "gets a fixed <code>100.x</code> address that works from anywhere</li>" +
+      "<li><b>NetBird</b> or <b>ZeroTier</b> &mdash; the same idea, if you " +
+      "would rather not use Tailscale</li>" +
+      "<li><b>Headscale</b> &mdash; Tailscale's protocol with a coordination " +
+      "server you run yourself</li>" +
+      "<li><b>WireGuard</b> &mdash; what the others are built on, set up by " +
+      "hand</li>" +
+      "<li><b>An SSH tunnel</b> &mdash; nothing to install: " +
+      "<code>ssh -L 8791:localhost:8791 that-mac</code>, then add it here as " +
+      "<code>127.0.0.1</code></li></ul>";
+  }
+
   var keyBox = document.getElementById("sharekey");
   if (keyBox) {
     var mine = isLocal() && META && META.share_key;

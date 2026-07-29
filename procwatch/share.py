@@ -119,6 +119,50 @@ def local_address():
         probe.close()
 
 
+# Where a Mac keeps the Tailscale command, depending on how it was installed.
+TAILSCALE_PATHS = (
+    "/usr/local/bin/tailscale",
+    "/opt/homebrew/bin/tailscale",
+    "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+)
+
+
+def tailscale_address():
+    """This machine's address on its private network, if it has one.
+
+    Detected two ways because either can be true on its own: the command line
+    tool is missing from a Mac App Store install, and the interface can be up
+    while the tool is not on PATH.
+
+    100.64.0.0/10 is the range Tailscale allocates from. Nothing else on a
+    normal Mac uses it, so an interface address inside it is the answer even
+    when the command cannot be found.
+    """
+    import subprocess
+    for path in TAILSCALE_PATHS:
+        if not os.path.exists(path):
+            continue
+        try:
+            out = subprocess.run([path, "ip", "-4"], capture_output=True,
+                                 text=True, timeout=8)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        first = (out.stdout or "").strip().split("\n")[0].strip()
+        if first.startswith("100."):
+            return first
+    try:
+        out = subprocess.run(["ifconfig"], capture_output=True, text=True,
+                             timeout=8).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    import re
+    for found in re.findall(r"inet (100\.\d+\.\d+\.\d+)", out):
+        octet = int(found.split(".")[1])
+        if 64 <= octet <= 127:               # 100.64.0.0/10
+            return found
+    return ""
+
+
 def make_key(words=3):
     """Three words, chosen with the system's cryptographic randomness."""
     pool = _wordlist()

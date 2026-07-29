@@ -132,7 +132,14 @@ machine, because they act on the one running the page. Ending a process on
 another Mac is a decision that belongs on that Mac.
 
 It is plain HTTP on your own network: fine at home, and someone sharing a café
-network could read it. Clocks are handled — the two machines this was built
+network could read it. **Do not forward a port to reach a Mac elsewhere** —
+the key is sent as plain text and command lines can carry tokens and paths.
+Put the machines on a private network instead and use the address that gives
+you; nothing here needs changing. Tailscale is the least work, and NetBird,
+ZeroTier, Headscale and plain WireGuard all do the same job. With nothing at
+all installed, `ssh -L 8791:localhost:8791 that-mac` and add it as
+`127.0.0.1`. If this Mac is already on such a network, settings shows that
+address and says to use it. Clocks are handled — the two machines this was built
 against are ten hours apart in absolute time, so every window is expressed in
 the clock of whichever machine is being asked.
 
