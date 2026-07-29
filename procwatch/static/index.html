@@ -277,6 +277,23 @@ g.shift{will-change:transform}
  grid-column:2}
 #qresults .none{padding:11px 10px;color:var(--ink3);font-size:12px}
 #qresults .sys{opacity:.72}
+.menuwrap{position:relative}
+#burger{width:31px;height:29px;font-size:14px;line-height:1}
+#burgermenu{position:absolute;right:0;top:34px;min-width:206px;z-index:75;
+ background:var(--bg);border:1px solid var(--line);border-radius:11px;
+ padding:5px;box-shadow:0 18px 44px rgba(0,0,0,.4)}
+#burgermenu[hidden]{display:none}
+.menuitem{display:flex;align-items:center;gap:9px;width:100%;
+ padding:8px 10px;border:0;border-radius:8px;background:transparent;
+ color:var(--ink2);font:inherit;font-size:12.5px;text-align:left;
+ text-decoration:none;cursor:pointer;white-space:nowrap}
+.menuitem:hover{background:var(--raise);color:var(--ink)}
+.menuitem .mi{width:14px;text-align:center;color:var(--ink3);font-size:12px}
+/* The switch keeps its knob, but as a row: a pill floating in a menu reads
+   as a button rather than as a setting with a state. */
+.menuitem.toggle{justify-content:flex-start;height:auto;border:0;
+ background:transparent}
+.menuitem.toggle:hover{background:var(--raise)}
 .linkbtn{display:inline-flex;align-items:center;height:29px;padding:0 11px;
  border:1px solid var(--line);border-radius:8px;background:var(--raise);
  color:var(--ink2);font-size:12px;font-weight:500;text-decoration:none;
@@ -369,20 +386,30 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
       <option value="2592000">30 days</option>
       <option value="31536000">1 year</option>
     </select>
-    <button id="showsys" class="toggle" aria-pressed="false"
-            title="Show or hide processes that are part of macOS">
-      <span class="knob"></span><span id="showsyslabel">all processes</span>
-    </button>
     <div class="searchbox">
       <input id="q" type="search" autocomplete="off" spellcheck="false"
              placeholder="Search everything" aria-label="Search everything">
       <kbd id="qhint">/</kbd>
       <div id="qresults" hidden></div>
     </div>
-    <a id="inbrowser" class="linkbtn" href="/" target="_blank" rel="noopener"
-       title="Open this dashboard in your browser">Open in browser</a>
-    <button id="theme" title="Switch light and dark">&#9681;</button>
-    <button id="gear" title="Settings">&#9881;</button>
+    <div class="menuwrap">
+      <button id="burger" aria-label="Menu" aria-expanded="false"
+              aria-haspopup="true">&#9776;</button>
+      <div id="burgermenu" hidden role="menu">
+        <button id="showsys" class="menuitem toggle" aria-pressed="false"
+                role="menuitemcheckbox"
+                title="Show or hide processes that are part of macOS">
+          <span class="knob"></span><span id="showsyslabel">all processes</span>
+        </button>
+        <button id="theme" class="menuitem" role="menuitem">
+          <span class="mi">&#9681;</span>Light or dark</button>
+        <a id="inbrowser" class="menuitem" role="menuitem" href="/"
+           target="_blank" rel="noopener">
+          <span class="mi">&#8599;</span>Open in browser</a>
+        <button id="gear" class="menuitem" role="menuitem">
+          <span class="mi">&#9881;</span>Settings&hellip;</button>
+      </div>
+    </div>
   </div>
 </header>
 
@@ -2172,6 +2199,41 @@ var openSettings = function (open) {
     size.textContent = fmtBytes(META.db_bytes / 1024) + " on disk";
   }
 };
+
+/* ---- the menu ---------------------------------------------------------- */
+var openMenu = function (open) {
+  var menu = document.getElementById("burgermenu");
+  var button = document.getElementById("burger");
+  if (!menu || !button) { return; }
+  menu.hidden = !open;
+  button.setAttribute("aria-expanded", open ? "true" : "false");
+};
+
+on("burger", "click", function (e) {
+  e.stopPropagation();
+  var menu = document.getElementById("burgermenu");
+  openMenu(menu.hidden);
+});
+on("burgermenu", "click", function (e) {
+  // The toggle stays put: flipping "all processes" and watching the result is
+  // one action, and closing the menu underneath it would mean reopening the
+  // menu to flip it back. Everything else is a destination, so it closes.
+  if (e.target.closest && e.target.closest("#showsys")) { return; }
+  openMenu(false);
+});
+document.addEventListener("mousedown", function (e) {
+  var menu = document.getElementById("burgermenu");
+  if (menu && !menu.hidden && !e.target.closest(".menuwrap")) { openMenu(false); }
+});
+document.addEventListener("keydown", function (e) {
+  var menu = document.getElementById("burgermenu");
+  if (e.key === "Escape" && menu && !menu.hidden) {
+    e.stopPropagation();
+    openMenu(false);
+    var button = document.getElementById("burger");
+    if (button) { button.focus(); }
+  }
+}, true);
 
 on("gear", "click", function () { openSettings(true); });
 on("sheetclose", "click", function () { openSettings(false); });
