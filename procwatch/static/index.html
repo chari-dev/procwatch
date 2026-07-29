@@ -1347,6 +1347,40 @@ var render = function () {
   if (PAN_SECONDS) { applyShift(); }
 };
 
+/* ---- devices ------------------------------------------------------------
+   Another Mac's data, fetched by asking that machine rather than by opening
+   this one to the network. DEVICE is null for here and a peer name otherwise.
+
+   Two clocks are involved and they do not agree -- the pair this was built
+   against are ten hours apart in absolute time. Every window is therefore
+   expressed in the clock of whichever machine is being asked, and CLOCK_SKEW
+   carries the difference so nowSeconds() answers in the right one. Getting
+   this wrong does not look like an error; it looks like a machine with no
+   data. */
+var DEVICE = null;
+var CLOCK_SKEW = 0;        // peer's clock minus ours, in seconds
+var DEVICES = [];
+
+var api = function (path, params) {
+  var query = [];
+  Object.keys(params || {}).forEach(function (k) {
+    if (params[k] !== undefined && params[k] !== null) {
+      query.push(encodeURIComponent(k) + "=" + encodeURIComponent(params[k]));
+    }
+  });
+  if (!DEVICE) {
+    return path + (query.length ? "?" + query.join("&") : "");
+  }
+  return "/api/remote?peer=" + encodeURIComponent(DEVICE) +
+    "&path=" + encodeURIComponent(path) +
+    (query.length ? "&" + query.join("&") : "");
+};
+
+/* True only on this machine. Signalling a process on another Mac would mean
+   a browser here ending something there through a relay -- that decision
+   belongs on that machine, in front of whoever is using it. */
+var isLocal = function () { return !DEVICE; };
+
 var nowSeconds = function () {
   return Math.floor(Date.now() / 1000) + CLOCK_SKEW;
 };
@@ -2081,40 +2115,6 @@ document.addEventListener("keydown", function (e) {
     if (input) { input.focus(); input.select(); }
   }
 });
-
-/* ---- devices ------------------------------------------------------------
-   Another Mac's data, fetched by asking that machine rather than by opening
-   this one to the network. DEVICE is null for here and a peer name otherwise.
-
-   Two clocks are involved and they do not agree -- the pair this was built
-   against are ten hours apart in absolute time. Every window is therefore
-   expressed in the clock of whichever machine is being asked, and CLOCK_SKEW
-   carries the difference so nowSeconds() answers in the right one. Getting
-   this wrong does not look like an error; it looks like a machine with no
-   data. */
-var DEVICE = null;
-var CLOCK_SKEW = 0;        // peer's clock minus ours, in seconds
-var DEVICES = [];
-
-var api = function (path, params) {
-  var query = [];
-  Object.keys(params || {}).forEach(function (k) {
-    if (params[k] !== undefined && params[k] !== null) {
-      query.push(encodeURIComponent(k) + "=" + encodeURIComponent(params[k]));
-    }
-  });
-  if (!DEVICE) {
-    return path + (query.length ? "?" + query.join("&") : "");
-  }
-  return "/api/remote?peer=" + encodeURIComponent(DEVICE) +
-    "&path=" + encodeURIComponent(path) +
-    (query.length ? "&" + query.join("&") : "");
-};
-
-/* True only on this machine. Signalling a process on another Mac would mean
-   a browser here ending something there through a relay -- that decision
-   belongs on that machine, in front of whoever is using it. */
-var isLocal = function () { return !DEVICE; };
 
 /* ---- disk space by application ---------------------------------------- */
 var renderDevices = function () {
