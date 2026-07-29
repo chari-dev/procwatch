@@ -1,11 +1,12 @@
 """procwatch install | open | serve | record | app | backup | restore |
 alert | status | uninstall"""
 import argparse
+import json
 import os
 import sys
 import time
 
-from . import alerts, appbuild, archive, config, db, launchd
+from . import alerts, appbuild, archive, config, db, launchd, peers
 
 
 def _status():
@@ -27,6 +28,66 @@ def _status():
         print("%-9s %8d rows  %s" % (tier.name, row[0], span))
     gaps = conn.execute("SELECT COUNT(*) FROM gap").fetchone()[0]
     print("gaps       %d recorded" % gaps)
+    return 0
+
+
+def _fetch(path, query):
+    """Print one API answer as JSON. This is what a peer runs when asked."""
+    from urllib.parse import parse_qs
+    from . import server
+    conn = db.connect(config.DB_PATH)
+    try:
+        payload = server.api_get(conn, path, parse_qs(query))
+    except ValueError as error:
+        print(json.dumps({"error": str(error)}), file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
+    if payload is None:
+        print(json.dumps({"error": "unknown path %s" % path}), file=sys.stderr)
+        return 1
+    print(json.dumps(payload))
+    return 0
+
+
+def _peer(args):
+    if args.action == "add":
+        if not args.name or not args.host:
+            print("usage: procwatch peer add <name> <ssh-host>", file=sys.stderr)
+            return 1
+        try:
+            peers.add(args.name, args.host, args.program)
+        except ValueError as error:
+            print(error, file=sys.stderr)
+            return 1
+    elif args.action == "remove":
+        if not args.name or not peers.remove(args.name):
+            print("no peer called %r" % args.name, file=sys.stderr)
+            return 1
+    elif args.action == "check":
+        names = [args.name] if args.name else [p["name"] for p in peers.listing()]
+        if not names:
+            print("no peers yet")
+            return 0
+        for name in names:
+            state = peers.check(name)
+            if state["ok"]:
+                age = state["last_tick_age"]
+                print("%-16s ok  %s  last sample %s"
+                      % (name, state.get("hostname") or "",
+                         "%ds ago" % age if age is not None else "never"))
+            else:
+                print("%-16s unreachable  %s" % (name, state["error"]))
+        return 0
+
+    current = peers.listing()
+    if not current:
+        print("no peers. Add one:\n"
+              "  procwatch peer add laptop user@host.example")
+        return 0
+    for peer in current:
+        print("%-16s %s%s" % (peer["name"], peer["host"],
+                              "  (%s)" % peer["program"] if peer["program"] else ""))
     return 0
 
 
@@ -128,6 +189,21 @@ def main(argv=None):
     loader.add_argument("path")
     loader.add_argument("--yes", action="store_true",
                         help="skip the confirmation prompt")
+    # How a peer answers: run the same read-only API locally and print it.
+    # Not a network service -- it reads stdin-less arguments and writes JSON,
+    # so the only way to reach it is to already have shell access.
+    fetcher = sub.add_parser("fetch")
+    fetcher.add_argument("path")
+    fetcher.add_argument("query", nargs="?", default="")
+
+    peerer = sub.add_parser("peer")
+    peerer.add_argument("action", choices=["add", "list", "remove", "check"],
+                        nargs="?", default="list")
+    peerer.add_argument("name", nargs="?")
+    peerer.add_argument("host", nargs="?")
+    peerer.add_argument("--program", default="",
+                        help="path to procwatch.py there, if not the usual one")
+
     builder = sub.add_parser("app")
     builder.add_argument("--to", default="/Applications")
     alerter = sub.add_parser("alert")
@@ -161,6 +237,10 @@ def main(argv=None):
         return 0
     if args.command == "restore":
         return _restore(args.path, args.yes)
+    if args.command == "fetch":
+        return _fetch(args.path, args.query)
+    if args.command == "peer":
+        return _peer(args)
     if args.command == "app":
         try:
             path = appbuild.build(args.to)

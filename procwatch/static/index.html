@@ -306,6 +306,13 @@ g.shift{will-change:transform}
 .tablewrap thead th,.tablewrap table tr:first-child th{position:sticky;top:0;
  z-index:2;background:var(--card)}
 
+/* Looking at another machine. Quit, Force quit, backup and export all act on
+   the machine running this page, so they are hidden rather than left there to
+   be misread as acting on the one being viewed. */
+body.remote .act,
+body.remote #dobackup,
+body.remote #doexport{display:none}
+body.remote #device{border-color:var(--s4);color:var(--ink)}
 .menuwrap{position:relative}
 #burger{display:inline-flex;align-items:center;justify-content:center;
  width:31px;height:29px;padding:0;font-size:15px;line-height:1}
@@ -412,6 +419,9 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
   <div class="brand">Procwatch <span>&middot; <span id="tiername">&nbsp;</span></span>
     </div>
   <div class="tools">
+    <select id="device" aria-label="Device" title="Which machine to look at">
+      <option value="">This Mac</option>
+    </select>
     <select id="range" aria-label="Time range">
       <option value="3600">1 hour</option>
       <option value="43200">12 hours</option>
@@ -1271,7 +1281,7 @@ var wireDisclosure = function (root) {
 var showDetail = function (ts) {
   var el = document.getElementById("detail");
   el.innerHTML = '<div class="msg">Loading&hellip;</div>';
-  fetch("/api/bucket?tier=" + encodeURIComponent(DATA.tier) + "&ts=" + ts)
+  fetch(api("/api/bucket", {tier: DATA.tier, ts: ts}))
     .then(function (r) { return r.json(); })
     .then(function (rows) {
       if (!rows.length) {
@@ -1337,7 +1347,9 @@ var render = function () {
   if (PAN_SECONDS) { applyShift(); }
 };
 
-var nowSeconds = function () { return Math.floor(Date.now() / 1000); };
+var nowSeconds = function () {
+  return Math.floor(Date.now() / 1000) + CLOCK_SKEW;
+};
 
 var setWindow = function (end, span) {
   var now = nowSeconds();
@@ -1384,9 +1396,9 @@ var load = function () {
   // the top twelve processes and then dropping the non-applications leaves
   // nothing on a machine whose heaviest consumers are Spotlight and media
   // analysis -- which is most machines, over a long enough window.
-  fetch("/api/series?start=" + (end - RANGE) + "&end=" + end +
-        "&limit=" + SETTINGS.limit +
-        "&scope=" + (SHOW_SYSTEM ? "all" : "apps"))
+  fetch(api("/api/series", {start: end - RANGE, end: end,
+                            limit: SETTINGS.limit,
+                            scope: SHOW_SYSTEM ? "all" : "apps"}))
     .then(function (r) { return r.json(); })
     .then(function (d) {
       var seen = {};
@@ -1655,7 +1667,7 @@ var wireHighlight = function (root) {
 };
 
 var loadActivity = function () {
-  fetch("/api/activity?days=30").then(function (r) { return r.json(); })
+  fetch(api("/api/activity", {days: 30})).then(function (r) { return r.json(); })
     .then(function (hours) {
       var el = document.getElementById("heat");
       if (!hours.length) {
@@ -1711,7 +1723,7 @@ var loadActivity = function () {
 };
 
 var loadMeta = function () {
-  fetch("/api/info").then(function (r) { return r.json(); }).then(function (m) {
+  fetch(api("/api/info")).then(function (r) { return r.json(); }).then(function (m) {
     META = m;
     OLDEST = m.first_ts || OLDEST;
     document.getElementById("host").textContent = m.hostname || "this Mac";
@@ -1966,7 +1978,7 @@ var runSearch = function (term) {
   var box = document.getElementById("qresults");
   if (!box) { return; }
   if (!term.trim()) { closeSearch(); return; }
-  fetch("/api/search?q=" + encodeURIComponent(term))
+  fetch(api("/api/search", {q: term}))
     .then(function (r) { return r.json(); })
     .then(function (hits) {
       searchHits = hits;
@@ -2070,11 +2082,100 @@ document.addEventListener("keydown", function (e) {
   }
 });
 
+/* ---- devices ------------------------------------------------------------
+   Another Mac's data, fetched by asking that machine rather than by opening
+   this one to the network. DEVICE is null for here and a peer name otherwise.
+
+   Two clocks are involved and they do not agree -- the pair this was built
+   against are ten hours apart in absolute time. Every window is therefore
+   expressed in the clock of whichever machine is being asked, and CLOCK_SKEW
+   carries the difference so nowSeconds() answers in the right one. Getting
+   this wrong does not look like an error; it looks like a machine with no
+   data. */
+var DEVICE = null;
+var CLOCK_SKEW = 0;        // peer's clock minus ours, in seconds
+var DEVICES = [];
+
+var api = function (path, params) {
+  var query = [];
+  Object.keys(params || {}).forEach(function (k) {
+    if (params[k] !== undefined && params[k] !== null) {
+      query.push(encodeURIComponent(k) + "=" + encodeURIComponent(params[k]));
+    }
+  });
+  if (!DEVICE) {
+    return path + (query.length ? "?" + query.join("&") : "");
+  }
+  return "/api/remote?peer=" + encodeURIComponent(DEVICE) +
+    "&path=" + encodeURIComponent(path) +
+    (query.length ? "&" + query.join("&") : "");
+};
+
+/* True only on this machine. Signalling a process on another Mac would mean
+   a browser here ending something there through a relay -- that decision
+   belongs on that machine, in front of whoever is using it. */
+var isLocal = function () { return !DEVICE; };
+
 /* ---- disk space by application ---------------------------------------- */
+var renderDevices = function () {
+  var select = document.getElementById("device");
+  if (!select) { return; }
+  select.innerHTML = '<option value="">This Mac</option>' +
+    DEVICES.map(function (d) {
+      return '<option value="' + esc(d.name) + '">' + esc(d.name) + "</option>";
+    }).join("");
+  select.value = DEVICE || "";
+  // A reader looking at another machine should not be able to mistake it for
+  // this one, and should not be offered actions that only work here.
+  document.body.classList.toggle("remote", !isLocal());
+};
+
+var loadDevices = function () {
+  return fetch("/api/peers").then(function (r) { return r.json(); })
+    .then(function (list) { DEVICES = list || []; renderDevices(); })
+    .catch(function () {});
+};
+
+/* Switching machine re-reads everything, because nothing on screen came from
+   the new one -- and adopts its clock first, or every window asked for would
+   be hours away from any data it has. */
+var selectDevice = function (name) {
+  DEVICE = name || null;
+  CLOCK_SKEW = 0;
+  PINNED = null;
+  DATA = null;
+  banner(DEVICE ? "Reading " + DEVICE + "\u2026" : "");
+  renderDevices();
+  fetch(api("/api/info")).then(function (r) { return r.json(); })
+    .then(function (m) {
+      if (m && m.error) { throw new Error(m.error); }
+      if (m && m.now) {
+        CLOCK_SKEW = m.now - Math.floor(Date.now() / 1000);
+      }
+      META = m;
+      OLDEST = m.first_ts || null;
+      banner("");
+      END = null;
+      setWindow(nowSeconds(), SETTINGS.range);
+      load();
+      loadLive();
+      loadPorts();
+      loadStorage();
+      loadActivity();
+      loadMeta();
+    })
+    .catch(function (err) {
+      banner((DEVICE || "This Mac") + " is not answering \u00b7 " +
+             (err && err.message ? err.message : "unreachable"));
+    });
+};
+
+on("device", "change", function (e) { selectDevice(e.target.value); });
+
 var loadStorage = function () {
   var el = document.getElementById("storagebody");
   if (!el) { return; }
-  fetch("/api/storage").then(function (r) { return r.json(); })
+  fetch(api("/api/storage")).then(function (r) { return r.json(); })
     .then(function (apps) {
       if (!apps.length) {
         el.innerHTML = '<div class="msg">Not measured yet &mdash; the first ' +
@@ -2745,7 +2846,7 @@ var NOW = null;
    history is what is worth storing for years, this is what is worth watching.
    Nothing here writes, so polling fast costs nothing but a `ps`. */
 var loadLive = function () {
-  fetch("/api/now").then(function (r) { return r.json(); }).then(function (d) {
+  fetch(api("/api/now")).then(function (r) { return r.json(); }).then(function (d) {
     NOW = d;
     LIVE = d.groups || [];
     // A fault in the drawing is not a fault in the reading. Reporting one as
@@ -2777,7 +2878,7 @@ var loadLive = function () {
 
 var loadPorts = function () {
   var el = document.getElementById("portsbody");
-  fetch("/api/ports").then(function (r) { return r.json(); }).then(function (rows) {
+  fetch(api("/api/ports")).then(function (r) { return r.json(); }).then(function (rows) {
     if (!rows.length) { el.innerHTML = '<div class="msg">Nothing is listening.</div>'; return; }
     el.innerHTML = '<div class="tablewrap"><table class="rows">' +
       '<tr><th class="num">Port</th>' +
@@ -2826,7 +2927,7 @@ var pollForNewData = function () {
   // kilobytes to answer.
   loadLive();
   loadPorts();
-  fetch("/api/info").then(function (r) { return r.json(); }).then(function (m) {
+  fetch(api("/api/info")).then(function (r) { return r.json(); }).then(function (m) {
     if (m.last_tick && m.last_tick !== LAST_TICK) {
       LAST_TICK = m.last_tick;
       META = m;
@@ -2846,6 +2947,7 @@ var pollForNewData = function () {
 // it before the first fetch rather than being overwritten a moment later.
 RANGE = SETTINGS.range;
 syncRangeSelect();
+loadDevices();
 applyChartVisibility();
 
 load();
