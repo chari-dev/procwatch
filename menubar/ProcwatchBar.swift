@@ -106,6 +106,13 @@ final class Controller: NSObject, NSApplicationDelegate, NSPopoverDelegate,
         popover.delegate = self
 
         ensureServer()
+        // If Macs are already set up, the reason exists before anything is
+        // clicked -- someone who restarts should not have to open the panel
+        // to make their devices work again. Delayed so the server it asks is
+        // listening; still silent on an install with no devices.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            self.askForLocalNetworkIfNeeded()
+        }
     }
 
     /// Ask only once something needs it.
