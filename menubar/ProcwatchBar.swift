@@ -9,6 +9,7 @@
 // project's no-third-party-dependencies rule.
 
 import AppKit
+import Network
 import ServiceManagement
 import WebKit
 
@@ -58,12 +59,15 @@ func menuBarIcon() -> NSImage? {
 }
 
 final class Controller: NSObject, NSApplicationDelegate, NSPopoverDelegate,
-                        WKUIDelegate, WKNavigationDelegate {
+                        WKUIDelegate, WKNavigationDelegate,
+                        WKScriptMessageHandler {
     var statusItem: NSStatusItem!
     var popover = NSPopover()
     var webView: WKWebView!
     var port = defaultPort
     var serverProcess: Process?
+    var localNetwork: NWBrowser?
+    var askedForLocalNetwork = false
 
     func applicationDidFinishLaunching(_ note: Notification) {
         if let value = ProcessInfo.processInfo.environment["PROCWATCH_PORT"],
@@ -84,6 +88,9 @@ final class Controller: NSObject, NSApplicationDelegate, NSPopoverDelegate,
         }
 
         let config = WKWebViewConfiguration()
+        // The page tells us when a Mac is being added, so the prompt appears
+        // beside the action that needs it rather than out of nowhere.
+        config.userContentController.add(self, name: "procwatch")
         webView = WKWebView(frame: NSRect(origin: .zero, size: panelSize()),
                             configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
@@ -99,6 +106,51 @@ final class Controller: NSObject, NSApplicationDelegate, NSPopoverDelegate,
         popover.delegate = self
 
         ensureServer()
+    }
+
+    /// Ask only once something needs it.
+    ///
+    /// A process monitor requesting access to your network before you have
+    /// asked it to look at anything reads as the tool doing something it has
+    /// not explained. So the question is raised when there is a reason for it:
+    /// when a Mac has been added, or at the moment one is being added.
+    func askForLocalNetworkIfNeeded() {
+        if askedForLocalNetwork { return }
+        guard let url = URL(string: "http://127.0.0.1:\(port)/api/peers") else { return }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 2
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let list = try? JSONSerialization.jsonObject(with: data) as? [Any],
+                  !list.isEmpty else { return }
+            DispatchQueue.main.async { self.askForLocalNetwork() }
+        }.resume()
+    }
+
+    /// Raise the macOS local network prompt, from the app itself.
+    ///
+    /// The dashboard reaches other Macs through a Python process this app
+    /// starts. macOS refuses that until the app has been allowed, and reports
+    /// the refusal as "no route to host" -- which reads as a network fault and
+    /// is not one. Worse, the app never appeared in System Settings at all,
+    /// because nothing had ever asked on its behalf.
+    ///
+    /// Browsing for a Bonjour service is the documented way to raise it.
+    /// Nothing is expected to answer; the request is the point.
+    func askForLocalNetwork() {
+        if askedForLocalNetwork { return }
+        askedForLocalNetwork = true
+        let browser = NWBrowser(for: .bonjour(type: "_procwatch._tcp", domain: nil),
+                                using: NWParameters())
+        browser.stateUpdateHandler = { _ in }
+        browser.start(queue: .main)
+        localNetwork = browser
+        // Long enough for the prompt to be raised, then stopped: this exists
+        // to ask the question, not to discover anything.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+            browser.cancel()
+            self.localNetwork = nil
+        }
     }
 
     /// Start the server only if nothing is already serving.
@@ -162,6 +214,7 @@ final class Controller: NSObject, NSApplicationDelegate, NSPopoverDelegate,
         webView.load(request)
         popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
+        askForLocalNetworkIfNeeded()
     }
 
     /// A link asking for a new window opens in the real browser.
@@ -219,6 +272,13 @@ final class Controller: NSObject, NSApplicationDelegate, NSPopoverDelegate,
         alert.addButton(withTitle: "OK")
         _ = runHoldingPanel { alert.runModal() }
         completionHandler()
+    }
+
+    func userContentController(_ controller: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        if (message.body as? String) == "localNetwork" {
+            askForLocalNetwork()
+        }
     }
 
     func showMenu(_ sender: NSStatusBarButton) {

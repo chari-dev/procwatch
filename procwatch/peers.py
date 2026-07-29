@@ -14,6 +14,7 @@ has no route to anything that can end a process or copy a database. So the
 worst case, if a key leaks, is that someone learns which applications you run.
 """
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -137,11 +138,33 @@ def fetch(name, path, params):
             raise RuntimeError("%s is refusing keys for a moment" % name)
         raise RuntimeError(detail or "%s answered %d" % (name, error.code))
     except urllib.error.URLError as error:
+        reason = getattr(error, "reason", error)
+        # EHOSTUNREACH from inside an app bundle is almost never a routing
+        # problem: macOS refuses an app's local network access until it is
+        # allowed, and reports the refusal as "no route to host". The same
+        # request from a terminal succeeds, which is exactly what makes it
+        # baffling to diagnose from the message alone.
+        if getattr(reason, "errno", None) == 65 and _inside_app_bundle():
+            raise RuntimeError(
+                "macOS is blocking Procwatch from your local network, so it "
+                "cannot reach %s. Allow it in System Settings \u203a Privacy & "
+                "Security \u203a Local Network, then reopen Procwatch." % name)
         raise RuntimeError(
             "cannot reach %s. Is it awake, and is `procwatch share` running "
-            "there? (%s)" % (name, getattr(error, "reason", error)))
+            "there? (%s)" % (name, reason))
     except ValueError:
         raise RuntimeError("%s did not return data" % name)
+
+
+def _inside_app_bundle():
+    """Whether this process was started by the menu bar app.
+
+    Only the app is subject to the local network prompt; the same code run
+    from a terminal inherits the terminal's permission and works.
+    """
+    import sys
+    entry = (sys.argv[0] if sys.argv else "") or ""
+    return ".app/Contents/" in os.path.abspath(entry)
 
 
 def check(name):

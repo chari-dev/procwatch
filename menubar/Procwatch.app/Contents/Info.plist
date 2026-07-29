@@ -9,6 +9,8 @@
   <key>CFBundleShortVersionString</key><string>1.0</string>
   <key>CFBundleIconFile</key><string>procwatch</string>
   <key>LSUIElement</key><true/>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Procwatch reads the history of other Macs you have added, on your local network.</string>
   <key>NSAppTransportSecurity</key>
   <dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>

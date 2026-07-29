@@ -2192,12 +2192,25 @@ var postDevice = function (body) {
     .catch(function () { toast("Could not change devices", true); });
 };
 
+/* Tell the menu bar app that a Mac is being added, so macOS raises the local
+   network prompt next to the action that needs it. Absent in a browser, where
+   the permission belongs to the browser and not to us. */
+var askHostForLocalNetwork = function () {
+  try {
+    if (window.webkit && window.webkit.messageHandlers &&
+        window.webkit.messageHandlers.procwatch) {
+      window.webkit.messageHandlers.procwatch.postMessage("localNetwork");
+    }
+  } catch (err) { /* not running inside the app */ }
+};
+
 on("devadd", "click", function () {
   var name = document.getElementById("devname").value.trim();
   var host = document.getElementById("devhost").value.trim();
   var key = document.getElementById("devkey").value.trim();
   if (!name || !host) { toast("A name and an address are needed", true); return; }
   if (!key) { toast("Without the key that machine will refuse us", true); return; }
+  askHostForLocalNetwork();
   postDevice({action: "add", name: name, host: host, key: key});
   document.getElementById("devname").value = "";
   document.getElementById("devhost").value = "";

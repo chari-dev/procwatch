@@ -41,6 +41,8 @@ INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
   <key>CFBundleShortVersionString</key><string>1.1.1</string>
   <key>CFBundleIconFile</key><string>procwatch</string>
   <key>LSUIElement</key><true/>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Procwatch reads the history of other Macs you have added, on your local network.</string>
   <key>NSAppTransportSecurity</key>
   <dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
@@ -134,6 +136,18 @@ def build(destination="/Applications"):
         with open(os.path.join(resources, "procwatch-bar.png"), "wb") as handle:
             handle.write(asset("procwatch-bar.png"))
         shutil.copy2(program, os.path.join(resources, "procwatch.py"))
+
+        # swiftc's linker signature covers the binary but not the bundle, so
+        # Info.plist is unbound: macOS has no usage description to show and no
+        # identity to remember a decision against, and the app never appears
+        # under Local Network. An ad-hoc signature over the bundle fixes both
+        # and needs no certificate.
+        try:
+            subprocess.run(["codesign", "--force", "--sign", "-",
+                            "--identifier", "dev.procwatch.bar", app],
+                           capture_output=True, timeout=120)
+        except (OSError, subprocess.TimeoutExpired):
+            pass          # unsigned still runs; it just cannot be granted
 
         target = os.path.join(destination, APP_NAME)
         _quit_running()

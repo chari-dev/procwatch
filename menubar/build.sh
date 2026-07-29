@@ -29,10 +29,19 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleShortVersionString</key><string>1.0</string>
   <key>CFBundleIconFile</key><string>procwatch</string>
   <key>LSUIElement</key><true/>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Procwatch reads the history of other Macs you have added, on your local network.</string>
   <key>NSAppTransportSecurity</key>
   <dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST
+
+# swiftc leaves a linker signature that covers the binary and not the bundle,
+# so Info.plist is "not bound" -- macOS then has no usage description to show
+# and no stable identity to remember a decision against, which is why the app
+# never appeared under Local Network. An ad-hoc signature over the bundle
+# fixes both. No certificate is needed.
+codesign --force --sign - --identifier dev.procwatch.bar "$APP" >/dev/null 2>&1 || true
 
 # Install into /Applications so it shows up in Launchpad, Spotlight and the
 # app switcher like anything else. A running copy is quit first: replacing the
