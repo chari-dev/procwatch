@@ -19,8 +19,8 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Dependency order: a module may only import ones already inlined above it.
 MODULES = [
     "config", "identity", "psreader", "rusage", "netstat", "system",
-    "db", "archive", "alerts", "storage", "sampler", "rollup", "procs",
-    "live", "query", "server",
+    "db", "archive", "alerts", "storage", "appbuild", "sampler", "rollup",
+    "procs", "live", "query", "server",
     "launchd", "main", "cli",
 ]
 
@@ -92,6 +92,25 @@ def build(out_path):
         with open(path) as handle:
             source = handle.read()
         parts.append("_%s = _install(%r, %r)\n" % (name, name, source))
+
+    # The menu bar app's sources travel with the bundle, so a machine that
+    # only ever ran the one-line installer can still build it. Compiling
+    # locally is what keeps the result out of quarantine -- a downloaded
+    # unsigned bundle is refused outright by Gatekeeper.
+    parts.append("\n_appbuild = _sys.modules['procwatch.appbuild']\n")
+    # A 512px master rather than the .icns, which carries every size up to
+    # 1024@2x and weighs 2.2 MB on its own -- most of a file people are asked
+    # to curl. The icon set is generated from this at build time.
+    sources = {"ProcwatchBar.swift": os.path.join(HERE, "menubar", "ProcwatchBar.swift"),
+               "icon.png": os.path.join(HERE, "menubar", "icon.png"),
+               "procwatch-bar.png": os.path.join(HERE, "menubar", "procwatch-bar.png")}
+    for name, path in sources.items():
+        with open(path, "rb") as handle:
+            blob = base64.b64encode(handle.read()).decode("ascii")
+        chunks = [blob[i:i + 76] for i in range(0, len(blob), 76)]
+        parts.append("_appbuild.EMBEDDED[%r] = (\n" % name)
+        parts.extend('    "%s"\n' % chunk for chunk in chunks)
+        parts.append(")\n")
 
     index = os.path.join(HERE, "procwatch", "static", "index.html")
     with open(index, "rb") as handle:

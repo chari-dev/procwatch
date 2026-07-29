@@ -101,16 +101,25 @@ say "recording every 30 seconds"
 
 # 3. The menu bar app. Optional, and the only part needing developer tools --
 #    a machine without them still gets a working recorder and dashboard.
-if [ "$WANT_APP" = yes ] && [ ! -f "$HERE/menubar/build.sh" ]; then
-    say "menu bar app needs the repository: git clone $REPO && sh install.sh"
-elif [ "$WANT_APP" = yes ]; then
-    if command -v swiftc >/dev/null 2>&1; then
+if [ "$WANT_APP" = yes ]; then
+    if ! command -v swiftc >/dev/null 2>&1; then
+        say "skipped the menu bar app (no swiftc -- run: xcode-select --install,"
+        say "then: python3 \"$TARGET\" app)"
+    elif [ -f "$HERE/menubar/build.sh" ]; then
         sh "$HERE/menubar/build.sh" >/dev/null 2>&1 && say "menu bar app installed"
-        pkill -f "ProcwatchBar" 2>/dev/null || true
+        pkill -f "Procwatch.app/Contents/MacOS" 2>/dev/null || true
         sleep 1
         open -a "$APP" 2>/dev/null || true
     else
-        say "skipped the menu bar app (no swiftc -- run: xcode-select --install)"
+        # No checkout: the program carries the app's sources and builds it
+        # here. Compiling on this machine is what keeps the result out of
+        # quarantine -- a downloaded unsigned bundle is refused outright.
+        if python3 "$TARGET" app >/dev/null 2>&1; then
+            say "menu bar app built and installed"
+        else
+            say "could not build the menu bar app; the dashboard still works"
+            say "  try: python3 \"$TARGET\" app"
+        fi
     fi
 fi
 

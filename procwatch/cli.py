@@ -1,11 +1,11 @@
-"""procwatch install | open | serve | record | backup | restore | alert |
-status | uninstall"""
+"""procwatch install | open | serve | record | app | backup | restore |
+alert | status | uninstall"""
 import argparse
 import os
 import sys
 import time
 
-from . import alerts, archive, config, db, launchd
+from . import alerts, appbuild, archive, config, db, launchd
 
 
 def _status():
@@ -128,6 +128,8 @@ def main(argv=None):
     loader.add_argument("path")
     loader.add_argument("--yes", action="store_true",
                         help="skip the confirmation prompt")
+    builder = sub.add_parser("app")
+    builder.add_argument("--to", default="/Applications")
     alerter = sub.add_parser("alert")
     alerter.add_argument("pattern", nargs="?",
                          help="process or application name, or * for anything")
@@ -159,6 +161,15 @@ def main(argv=None):
         return 0
     if args.command == "restore":
         return _restore(args.path, args.yes)
+    if args.command == "app":
+        try:
+            path = appbuild.build(args.to)
+        except (RuntimeError, OSError) as error:
+            print(error, file=sys.stderr)
+            return 1
+        print("installed %s" % path)
+        appbuild.launch(path)
+        return 0
     if args.command == "alert":
         return _alert(args)
     if args.command == "record":
