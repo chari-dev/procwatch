@@ -179,6 +179,48 @@ final class Controller: NSObject, NSApplicationDelegate, NSPopoverDelegate,
         return nil   // nil means "no new web view"; the browser has it now
     }
 
+    /// Run something modal without the panel vanishing underneath it.
+    ///
+    /// A transient popover closes as soon as it stops being key, and a modal
+    /// alert takes key. Without this the dialog appears and the panel behind
+    /// it disappears, so answering the question returns you to nothing.
+    func runHoldingPanel(_ body: () -> NSApplication.ModalResponse)
+            -> NSApplication.ModalResponse {
+        let previous = popover.behavior
+        popover.behavior = .applicationDefined
+        defer { popover.behavior = previous }
+        return body()
+    }
+
+    /// JavaScript dialogs.
+    ///
+    /// WKWebView answers confirm() with false and alert() with nothing unless
+    /// these are implemented -- silently, with no error anywhere. The Quit and
+    /// Force quit buttons ask for confirmation before signalling anything, so
+    /// in the panel they appeared to do nothing at all while working perfectly
+    /// in a browser.
+    func webView(_ webView: WKWebView,
+                 runJavaScriptConfirmPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping (Bool) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        completionHandler(runHoldingPanel { alert.runModal() } == .alertFirstButtonReturn)
+    }
+
+    func webView(_ webView: WKWebView,
+                 runJavaScriptAlertPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping () -> Void) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: "OK")
+        _ = runHoldingPanel { alert.runModal() }
+        completionHandler()
+    }
+
     func showMenu(_ sender: NSStatusBarButton) {
         let menu = NSMenu()
         menu.addItem(withTitle: "Open in browser", action: #selector(openBrowser),
