@@ -174,6 +174,15 @@ table.rows tr.lit{background:var(--raise)}
 .toggle[aria-pressed=true] .knob::after{transform:translateX(13px);background:#fff}
 #tip tr.tot td{border-top:1px solid var(--line);padding-top:5px;
  color:var(--ink2);font-weight:600}
+/* Disclosure for an application's own processes. */
+.disc{border:0;background:transparent;color:var(--ink3);cursor:pointer;
+ font-size:10px;line-height:1;padding:2px 5px 2px 0;margin-left:-3px}
+.disc:hover{color:var(--ink)}
+tr.parent > td:first-child{font-weight:inherit}
+tr.kid > td:first-child{padding-left:26px;color:var(--ink2)}
+tr.kid > td{background:color-mix(in srgb, var(--raise) 55%, transparent)}
+tr.otherrow > td:first-child b{color:var(--ink2)}
+tr.otherrow > td{opacity:.85}
 .brush{fill:var(--ink);fill-opacity:.10;stroke:var(--ink3);stroke-width:1;
  shape-rendering:crispEdges;pointer-events:none}
 /* Hinting the transform keeps the browser from re-rasterising the whole plot
@@ -265,8 +274,8 @@ g.shift{will-change:transform}
    bar is pinned to the right edge so a value that outgrows its reservation
    still cannot push it. */
 .stat .v{font-size:15px;font-weight:560;letter-spacing:-.01em;white-space:nowrap;
- font-variant-numeric:tabular-nums;flex-shrink:0}
-.stat .sep{color:var(--line);font-size:13px;flex-shrink:0}
+ font-variant-numeric:tabular-nums;flex-shrink:0;min-width:66px}
+.stat .sep{color:var(--line);font-size:13px;flex-shrink:0;margin:0 1px}
 /* In the menu bar panel a card is about 100px wide, where "70.6% | 11.3GB/
    16.0GB" cannot fit on one line and would truncate to an ellipsis -- which
    hides the very number the caption exists to give. There it wraps to its own
@@ -274,6 +283,7 @@ g.shift{will-change:transform}
 @media (max-width: 900px){
   .stat{padding:12px 14px}
   .stat .row{flex-wrap:wrap;gap:0 6px}
+  .stat .v{min-width:0}
   .stat .sep{display:none}
   .stat .sub2{flex-basis:100%;margin-top:2px}
 }
@@ -544,12 +554,13 @@ var css = function (n) {
   }
   return CSS_CACHE[n];
 };
-/* Rebuilt once per render rather than cached against a data version: the
-   series list changes whenever a process appears or exits, and a stale map
-   would hand a new process the colour of a dead one. */
-var COLOUR_RANK = null;
 var colourOf = function (i, isOther) {
   return css(isOther ? "--other" : PAL[i % PAL.length]);
+};
+/* The remainder band's display name. The stored key is an internal sentinel;
+   showing it asks the reader to recognise a process that does not exist. */
+var labelOf = function (name) {
+  return name === "__other__" ? "Everything else" : name;
 };
 var esc = function (s) {
   return String(s).replace(/[&<>"']/g, function (c) {
@@ -827,7 +838,8 @@ var drawStacked = function (elId, legId, field, unit, fmt, h, asShare) {
     }
     return '<b data-series="' + esc(s.exe) + '"' +
            (PINNED === s.exe ? ' class="lit"' : "") + '><i style="background:' +
-           colourOf(colourIndexOf(s), s.is_other) + '"></i>' + esc(s.exe) + "<em>" +
+           colourOf(colourIndexOf(s), s.is_other) + '"></i>' + esc(labelOf(s.exe)) +
+           "<em>" +
            esc(fmt(peak)) + "</em></b>";
   }).join("");
   wireHighlight(legEl);
@@ -934,7 +946,8 @@ var wireChart = function (elId, field, fmt, share) {
       // With one process pinned, zero is the answer rather than a reason to
       // say nothing was recorded.
       if (v <= 0 && !PINNED) { return null; }
-      return {n: s.exe, v: v, m: field === "cpu_avg" ? p.cpu_max : null,
+      return {n: labelOf(s.exe), v: v,
+              m: field === "cpu_avg" ? p.cpu_max : null,
               c: colourOf(colourIndexOf(s), s.is_other)};
     }).filter(Boolean).sort(function (a, b) { return b.v - a.v; });
     var html = "<h4>" + esc(fmtFull(ts)) +
@@ -1010,6 +1023,102 @@ var wireSimple = function (elId, key, unit, scale) {
   });
 };
 
+/* Fold a flat list of processes into one row per application, with the
+   processes that made it up kept as children.
+
+   A browser is thirty processes. Listed flat they push everything else off
+   the screen, which is the same reason the charts group them -- so the panel
+   you open FROM a chart should not disagree with the chart about what a row
+   is. Anything outside an application stands on its own; there is nothing to
+   fold it into. */
+var groupRows = function (rows) {
+  var byApp = {}, out = [];
+  rows.forEach(function (r) {
+    if (!r.app || r.is_other) { out.push({row: r, kids: []}); return; }
+    var g = byApp[r.app];
+    if (!g) {
+      g = byApp[r.app] = {row: {
+        exe: r.app, cmdline: "", app: r.app, is_other: false,
+        is_system: r.is_system, cpu_avg: 0, cpu_max: 0, cpu_max_ts: r.cpu_max_ts,
+        rss_kb: 0, nproc: 0
+      }, kids: []};
+      out.push(g);
+    }
+    var t = g.row;
+    t.cpu_avg += r.cpu_avg;
+    // The application's peak is the largest any one of its processes reached,
+    // not the sum: those peaks did not happen at the same instant.
+    if (r.cpu_max > t.cpu_max) { t.cpu_max = r.cpu_max; t.cpu_max_ts = r.cpu_max_ts; }
+    t.rss_kb += r.rss_kb;
+    t.nproc += r.nproc;
+    t.is_system = t.is_system && r.is_system;
+    g.kids.push(r);
+  });
+  out.sort(function (a, b) { return b.row.cpu_avg - a.row.cpu_avg; });
+  out.forEach(function (g) {
+    g.kids.sort(function (a, b) { return b.cpu_avg - a.cpu_avg; });
+  });
+  return out;
+};
+
+var OTHER_NAME = "__other__";
+
+var detailCells = function (r) {
+  return '<td class="num">' + r.cpu_avg.toFixed(1) + "%</td>" +
+    '<td class="num">' + r.cpu_max.toFixed(1) + "%</td>" +
+    '<td class="num">' + esc(fmtClock(r.cpu_max_ts)) + "</td>" +
+    '<td class="num">' + esc(fmtBytes(r.rss_kb)) + "</td>" +
+    '<td class="num">' + r.nproc + "</td>";
+};
+
+var detailRow = function (g, i) {
+  var r = g.row;
+  // The remainder is not a process and cannot be opened: the sampler keeps
+  // the top forty identities per tick and sums the rest, so what is inside it
+  // was never recorded separately. Saying so is better than a disclosure
+  // arrow that opens onto nothing.
+  if (r.is_other || r.exe === OTHER_NAME) {
+    return '<tr class="otherrow"><td><b>Everything else</b>' +
+      '<span class="cmd">' + r.nproc + " processes the recorder did not keep " +
+      "separately \u2014 each was too small to rank, and they are summed " +
+      "here so the totals still add up</span></td>" + detailCells(r) + "</tr>";
+  }
+  if (!g.kids.length) {
+    return "<tr><td>" + esc(r.exe) +
+      (r.cmdline && r.cmdline !== r.exe
+        ? '<span class="cmd">' + esc(r.cmdline) + "</span>" : "") +
+      "</td>" + detailCells(r) + "</tr>";
+  }
+  return '<tr class="parent" data-kids="d' + i + '"><td>' +
+      '<button class="disc" aria-expanded="false" ' +
+      'aria-label="Show the processes in ' + esc(r.exe) + '">\u25b8</button>' +
+      esc(r.exe) + '<span class="cmd">' + g.kids.length + " processes</span>" +
+      "</td>" + detailCells(r) + "</tr>" +
+    g.kids.map(function (k) {
+      return '<tr class="kid d' + i + '" hidden><td>' + esc(k.exe) +
+        (k.cmdline && k.cmdline !== k.exe
+          ? '<span class="cmd">' + esc(k.cmdline) + "</span>" : "") +
+        "</td>" + detailCells(k) + "</tr>";
+    }).join("");
+};
+
+/* One handler per table rather than one per row: the table is rebuilt on
+   every refresh, and per-row listeners would accumulate with it. */
+var wireDisclosure = function (root) {
+  root.addEventListener("click", function (e) {
+    var button = e.target.closest ? e.target.closest(".disc") : null;
+    if (!button) { return; }
+    var tr = button.closest("tr");
+    var open = button.getAttribute("aria-expanded") !== "true";
+    button.setAttribute("aria-expanded", open ? "true" : "false");
+    button.textContent = open ? "\u25be" : "\u25b8";
+    Array.prototype.forEach.call(
+      root.querySelectorAll("tr." + tr.dataset.kids), function (kid) {
+        kid.hidden = !open;
+      });
+  });
+};
+
 var showDetail = function (ts) {
   var el = document.getElementById("detail");
   el.innerHTML = '<div class="msg">Loading&hellip;</div>';
@@ -1034,18 +1143,9 @@ var showDetail = function (ts) {
         '</th><th class="num">avg</th><th class="num">peak</th>' +
         '<th class="num">at</th><th class="num">memory</th>' +
         '<th class="num">procs</th></tr>' +
-        rows.map(function (r) {
-          return "<tr><td>" + esc(r.exe) +
-            (r.cmdline && r.cmdline !== r.exe
-              ? '<span class="cmd">' + esc(r.cmdline) + "</span>"
-              : "") +
-            '</td><td class="num">' + r.cpu_avg.toFixed(1) + "%</td>" +
-            '<td class="num">' + r.cpu_max.toFixed(1) + "%</td>" +
-            '<td class="num">' + esc(fmtClock(r.cpu_max_ts)) + "</td>" +
-            '<td class="num">' + esc(fmtBytes(r.rss_kb)) + "</td>" +
-            '<td class="num">' + r.nproc + "</td></tr>";
-        }).join("") + "</table>";
+        groupRows(rows).map(detailRow).join("") + "</table>";
       on("detailclose", "click", function () { el.innerHTML = ""; });
+      wireDisclosure(el);
     })
     .catch(function () {
       el.innerHTML = '<div class="msg">Could not load that bucket.</div>';
@@ -1059,7 +1159,9 @@ var perSecond = function (v) { return v / bucketSeconds(); };
 var fmtRate = function (bytes) { return fmtBytes(perSecond(bytes) / 1024) + "/s"; };
 
 var render = function () {
-  COLOUR_RANK = null;   // the series list may have changed since last time
+  // Anything new in this window gets a colour; anything already seen keeps
+  // the one it had.
+  assignColours(universeSeries());
   document.getElementById("tiername").textContent = DATA.tier + " resolution";
   document.getElementById("cpusub").textContent =
     "Stacked from each process's average over the interval. Percentages pass 100 " +
@@ -2030,15 +2132,43 @@ var universeSeries = function () {
    in DATA.series, so ranking against the raw list left every app falling back
    to its array position -- which agreed with the legend only because both
    walked the same array. Ranking the universe makes that agreement real. */
+var keyOf = function (s) { return s.exe + "\u0000" + (s.cmdline || ""); };
+
+/* Colour belongs to the process, for as long as the page is open.
+   
+   It used to be the position in the ranked list, which is a property of the
+   window rather than of the process: pan into an hour where something else
+   was busier and every series was repainted, so following one process across
+   time meant watching it change colour underneath you.
+   
+   Assignments are made once, on first sight, and kept. A new arrival takes
+   whichever palette slot is least used by the series currently on screen, so
+   two things drawn together still differ even after the palette has wrapped. */
+var COLOUR_BY_KEY = {};
+
+var assignColours = function (series) {
+  var used = {}, unassigned = [];
+  series.forEach(function (s) {
+    if (s.is_other) { return; }           // drawn in its own reserved grey
+    var k = keyOf(s);
+    var at = COLOUR_BY_KEY[k];
+    if (at === undefined) { unassigned.push(k); return; }
+    used[at] = (used[at] || 0) + 1;
+  });
+  unassigned.forEach(function (k) {
+    var best = 0, bestCount = null, i;
+    for (i = 0; i < PAL.length; i++) {
+      var count = used[i] || 0;
+      if (bestCount === null || count < bestCount) { best = i; bestCount = count; }
+      if (count === 0) { break; }         // a free slot is as good as it gets
+    }
+    COLOUR_BY_KEY[k] = best;
+    used[best] = (used[best] || 0) + 1;
+  });
+};
+
 var colourIndexOf = function (s) {
-  var key = s.exe + "\u0000" + (s.cmdline || "");
-  if (!COLOUR_RANK || COLOUR_RANK.data !== DATA || COLOUR_RANK.sys !== SHOW_SYSTEM) {
-    COLOUR_RANK = {data: DATA, sys: SHOW_SYSTEM};
-    universeSeries().forEach(function (o, i) {
-      COLOUR_RANK["k" + o.exe + "\u0000" + (o.cmdline || "")] = i;
-    });
-  }
-  var i = COLOUR_RANK["k" + key];
+  var i = COLOUR_BY_KEY[keyOf(s)];
   return i === undefined ? 0 : i;
 };
 
@@ -2116,6 +2246,9 @@ var sortValue = function (col, e) {
   return col.num ? e[col.k] : String(e[col.k] || "").toLowerCase();
 };
 
+var FROZEN_ORDER = null;   // row order held while something is selected
+var LIVE_OPEN = {};        // which applications are expanded
+
 var renderLive = function () {
   var el = document.getElementById("livebody");
   if (!LIVE.length) {
@@ -2123,43 +2256,79 @@ var renderLive = function () {
     return;
   }
   var col = LIVE_COLS.filter(function (c) { return c.k === SORT.key; })[0] || LIVE_COLS[1];
-  var visible, hidden;
-  if (SHOW_SYSTEM) {
-    visible = LIVE;
-    hidden = 0;
-  } else {
-    // Same rule as the charts: applications only, helpers folded in.
-    var byApp = {};
-    LIVE.forEach(function (e) {
-      if (!e.app) { return; }
-      var m = byApp[e.app];
-      if (!m) {
-        m = byApp[e.app] = {exe: e.app, args: "", app: e.app, cpu: 0, rss_kb: 0,
-                            nproc: 0, ports: [], disk_read: 0, disk_write: 0,
-                            net_in: 0, net_out: 0, energy: 0, waiting: 0,
-                            lead_pid: e.lead_pid, is_system: e.is_system};
-      }
-      m.cpu += e.cpu; m.rss_kb += e.rss_kb; m.nproc += e.nproc;
-      m.disk_read += e.disk_read; m.disk_write += e.disk_write;
-      m.net_in += e.net_in; m.net_out += e.net_out;
-      m.energy += e.energy; m.waiting += e.waiting;
-      m.ports = m.ports.concat(e.ports);
-      m.lead_pid = Math.min(m.lead_pid, e.lead_pid);
-    });
-    visible = Object.keys(byApp).map(function (k) {
-      byApp[k].ports = byApp[k].ports.filter(function (p, i, a) {
-        return a.indexOf(p) === i;
-      }).sort(function (a, b) { return a - b; });
-      return byApp[k];
-    });
-    hidden = LIVE.length - visible.length;
-  }
-  var rows = visible.slice().sort(function (a, b) {
-    var av = sortValue(col, a), bv = sortValue(col, b);
+
+  // One entry per application, with the process groups that make it up kept
+  // as children rather than discarded. Anything outside an application stands
+  // alone, and only appears when system processes are shown.
+  var byApp = {}, groups = [], hidden = 0;
+  LIVE.forEach(function (e) {
+    if (!e.app) {
+      if (SHOW_SYSTEM) { groups.push({row: e, kids: []}); }
+      else { hidden += 1; }
+      return;
+    }
+    var g = byApp[e.app];
+    if (!g) {
+      g = byApp[e.app] = {row: {
+        exe: e.app, args: "", app: e.app, cpu: 0, rss_kb: 0, nproc: 0,
+        ports: [], disk_read: 0, disk_write: 0, net_in: 0, net_out: 0,
+        energy: 0, waiting: 0, lead_pid: e.lead_pid, is_system: e.is_system
+      }, kids: []};
+      groups.push(g);
+    }
+    var m = g.row;
+    m.cpu += e.cpu; m.rss_kb += e.rss_kb; m.nproc += e.nproc;
+    m.disk_read += e.disk_read; m.disk_write += e.disk_write;
+    m.net_in += e.net_in; m.net_out += e.net_out;
+    m.energy += e.energy; m.waiting += e.waiting;
+    m.ports = m.ports.concat(e.ports);
+    // The lowest pid in an application is the app itself rather than one of
+    // its helpers, so that is what Quit should be aimed at.
+    m.lead_pid = Math.min(m.lead_pid, e.lead_pid);
+    m.is_system = m.is_system && e.is_system;
+    g.kids.push(e);
+  });
+  groups.forEach(function (g) {
+    g.row.ports = g.row.ports.filter(function (p, i, a) {
+      return a.indexOf(p) === i;
+    }).sort(function (a, b) { return a - b; });
+    g.kids.sort(function (a, b) { return b.cpu - a.cpu; });
+  });
+
+  var byValue = function (a, b) {
+    var av = sortValue(col, a.row), bv = sortValue(col, b.row);
     if (av < bv) { return -SORT.dir; }
     if (av > bv) { return SORT.dir; }
     return 0;
-  }).slice(0, 60);
+  };
+  /* While something is selected the order is held still.
+     
+     Selecting a row means someone is reading it. Re-sorting underneath them
+     two seconds later moves the thing they are looking at somewhere else on
+     the screen -- and the numbers that caused the move are exactly the ones
+     they were watching. The values keep updating; only the order is frozen,
+     and it is released the moment the selection is. */
+  if (PINNED) {
+    if (!FROZEN_ORDER) {
+      FROZEN_ORDER = {};
+      groups.slice().sort(byValue).forEach(function (g, i) {
+        FROZEN_ORDER[g.row.exe] = i;
+      });
+    }
+    var next = Object.keys(FROZEN_ORDER).length;
+    groups.sort(function (a, b) {
+      // Something that appeared after the freeze goes to the end rather than
+      // pushing the held rows around.
+      var ai = FROZEN_ORDER[a.row.exe], bi = FROZEN_ORDER[b.row.exe];
+      if (ai === undefined) { ai = next + 1; }
+      if (bi === undefined) { bi = next + 1; }
+      return ai - bi || byValue(a, b);
+    });
+  } else {
+    FROZEN_ORDER = null;
+    groups.sort(byValue);
+  }
+  var rows = groups.slice(0, 60);
 
   var head = LIVE_COLS.map(function (c) {
     var on = c.k === SORT.key;
@@ -2169,23 +2338,50 @@ var renderLive = function () {
       "</span></th>";
   }).join("") + "<th></th>";
 
+  var cellsFor = function (e) {
+    return LIVE_COLS.slice(1).map(function (c) {
+      return '<td class="' + (c.num ? "num" : "") + '">' + c.f(e) + "</td>";
+    }).join("");
+  };
+  var actionsFor = function (e) {
+    return '<td><div class="act">' +
+      '<button data-pid="' + e.lead_pid + '" data-name="' + esc(e.exe) +
+      '">Quit</button>' +
+      '<button class="danger" data-pid="' + e.lead_pid + '" data-name="' +
+      esc(e.exe) + '" data-force="1">Force</button></div></td>';
+  };
+
   el.innerHTML = '<table class="rows"><tr>' + head + "</tr>" +
-    rows.map(function (e) {
+    rows.map(function (g, i) {
+      var e = g.row;
       var flag = e.waiting
         ? ' <span class="warn" title="' + e.waiting +
           ' process(es) in an uninterruptible wait -- often stuck I/O">' +
           "\u26a0 waiting</span>"
         : "";
-      return '<tr data-series="' + esc(e.exe) + '"><td><b>' + esc(e.exe) + "</b>" +
-        flag + (e.args ? '<span class="sub">' + esc(e.args) + "</span>" : "") +
-        "</td>" +
-        LIVE_COLS.slice(1).map(function (c) {
-          return '<td class="' + (c.num ? "num" : "") + '">' + c.f(e) + "</td>";
-        }).join("") +
-        '<td><div class="act">' +
-        '<button data-pid="' + e.lead_pid + '" data-name="' + esc(e.exe) + '">Quit</button>' +
-        '<button class="danger" data-pid="' + e.lead_pid + '" data-name="' +
-        esc(e.exe) + '" data-force="1">Force</button></div></td></tr>';
+      // An application that is a single process has nothing to open.
+      var expandable = g.kids.length > 1;
+      var open = expandable && LIVE_OPEN[e.exe];
+      var head = '<tr data-series="' + esc(e.exe) + '"' +
+        (expandable ? ' class="parent" data-kids="k' + i + '"' : "") +
+        "><td>" +
+        (expandable
+          ? '<button class="disc" aria-expanded="' + (open ? "true" : "false") +
+            '" aria-label="Show the processes in ' + esc(e.exe) + '">' +
+            (open ? "\u25be" : "\u25b8") + "</button>"
+          : "") +
+        "<b>" + esc(e.exe) + "</b>" + flag +
+        (e.args ? '<span class="sub">' + esc(e.args) + "</span>"
+                : (expandable ? '<span class="sub">' + g.kids.length +
+                                " processes</span>" : "")) +
+        "</td>" + cellsFor(e) + actionsFor(e) + "</tr>";
+      if (!expandable) { return head; }
+      return head + g.kids.map(function (k) {
+        return '<tr class="kid k' + i + '"' + (open ? "" : " hidden") +
+          "><td>" + esc(k.exe) +
+          (k.args ? '<span class="sub">' + esc(k.args) + "</span>" : "") +
+          "</td>" + cellsFor(k) + actionsFor(k) + "</tr>";
+      }).join("");
     }).join("") + "</table>" +
     (hidden > 0
       ? '<div class="hiddennote">Showing ' + visible.length +
@@ -2194,6 +2390,24 @@ var renderLive = function () {
         " are folded in or hidden.</div>"
       : "");
 
+
+  /* Which groups are open survives the refresh. The table is rebuilt every
+     couple of seconds, so without recording it, opening one would close it
+     again before it could be read. */
+  el.addEventListener("click", function (e) {
+    var button = e.target.closest ? e.target.closest(".disc") : null;
+    if (!button) { return; }
+    e.stopPropagation();
+    var tr = button.closest("tr");
+    var name = tr.dataset.series;
+    LIVE_OPEN[name] = !LIVE_OPEN[name];
+    button.setAttribute("aria-expanded", LIVE_OPEN[name] ? "true" : "false");
+    button.textContent = LIVE_OPEN[name] ? "\u25be" : "\u25b8";
+    Array.prototype.forEach.call(
+      el.querySelectorAll("tr." + tr.dataset.kids), function (kid) {
+        kid.hidden = !LIVE_OPEN[name];
+      });
+  });
 
   Array.prototype.forEach.call(el.querySelectorAll("th[data-sort]"), function (th) {
     th.addEventListener("click", function () {

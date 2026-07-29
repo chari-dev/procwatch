@@ -356,6 +356,9 @@ def bucket_detail(conn, tier_name, ts):
         out.append({"exe": entry["exe"], "cmdline": entry["cmdline"],
                      "is_other": entry["is_other"],
                      "is_system": entry.get("is_system", True),
+                     # Needed to fold helpers under the application that owns
+                     # them, the same way the charts group them.
+                     "app": entry.get("app", ""),
                      "cpu_avg": point["cpu_avg"],
                      "cpu_max": point["cpu_max"], "cpu_max_ts": point["cpu_max_ts"],
                      "rss_kb": point["rss_avg"], "rss_max_kb": point["rss_max"],

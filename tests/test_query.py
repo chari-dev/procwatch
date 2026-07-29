@@ -17,6 +17,34 @@ class TestPickTier(unittest.TestCase):
         self.assertEqual(seconds, sorted(seconds))
 
 
+class TestBucketDetailGrouping(unittest.TestCase):
+    """The drill-down has to be groupable by application.
+
+    Without the app on each row the panel can only list processes flat, so a
+    browser's thirty renderers push everything else off the screen -- the
+    exact problem the charts solve by grouping.
+    """
+
+    def setUp(self):
+        self.conn = db.connect(":memory:")
+        db.init_schema(self.conn)
+        pid = self.conn.execute(
+            "INSERT INTO proc (exe, args_sig, cmdline_full, is_system, app) "
+            "VALUES ('Arc Helper','','/Applications/Arc.app/x',0,'Arc')").lastrowid
+        self.conn.execute(
+            "INSERT INTO sample_raw (ts, proc_id, cpu_avg, cpu_max, cpu_max_ts, "
+            "rss_avg, rss_max, nproc, samples) VALUES (60,?,100,200,60,1,1,1,1)",
+            (pid,))
+        self.conn.commit()
+
+    def tearDown(self):
+        self.conn.close()
+
+    def test_each_row_names_its_application(self):
+        rows = query.bucket_detail(self.conn, "raw", 60)
+        self.assertEqual(rows[0]["app"], "Arc")
+
+
 class TestSeries(unittest.TestCase):
     def setUp(self):
         self.conn = db.connect(":memory:")
