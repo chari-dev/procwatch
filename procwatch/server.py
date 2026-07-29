@@ -76,8 +76,11 @@ def api_get(conn, path, params):
         # dashboard should be able to collect from the machines it watches.
         try:
             info["share_key"] = share.key(conn)
+            info["share_host"] = share.local_address()
+            info["share_port"] = share.DEFAULT_PORT
         except Exception:
             info["share_key"] = ""
+            info["share_host"] = ""
         # This machine's own clock. Two Macs can disagree by hours -- these
         # two do -- so anything derived from a timestamp has to be worked out
         # against the clock that produced it. Without this a peer's "last

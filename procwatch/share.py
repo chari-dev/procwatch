@@ -98,6 +98,27 @@ def _wordlist():
 WORDS_FILE = None      # kept out of the key deliberately; see _wordlist
 
 
+def local_address():
+    """This machine's address on the local network.
+
+    Wanted so the address can be copied off the screen rather than hunted for
+    in System Settings. Found by opening a UDP socket towards an address that
+    is never contacted -- no packet is sent, but the kernel has to choose a
+    route, and the interface it picks is the one another machine on this
+    network would reach us on. Reading en0 directly would be wrong on a Mac
+    using wi-fi and ethernet, or a VPN.
+    """
+    import socket
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(("192.0.2.1", 9))      # reserved for documentation
+        return probe.getsockname()[0]
+    except OSError:
+        return ""
+    finally:
+        probe.close()
+
+
 def make_key(words=3):
     """Three words, chosen with the system's cryptographic randomness."""
     pool = _wordlist()
