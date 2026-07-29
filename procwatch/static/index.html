@@ -15,7 +15,7 @@
    is what clears the adjacent colour-vision gates; the hues are Beszel's. */
 :root{
   color-scheme:dark;
-  --bg:#0a0a0c; --card:#131317; --line:#26262c; --raise:#1b1b21;
+  --bg:#0a0a0c; --card:#131317; --line:#26262c; --raise:#1b1b21; --stripe:#17171c;
   --ink:#fafafa; --ink2:#a3a3ad; --ink3:#6d6d78; --grid:#1e1e24;
   --s1:#3b82f6; --s2:#ea580c; --s3:#059669; --s4:#a16207;
   --s5:#ec4899; --s6:#16a34a; --s7:#8b5cf6; --s8:#ef4444;
@@ -29,7 +29,7 @@
 @media (prefers-color-scheme:light){
   :root:where(:not([data-theme=dark])){
     color-scheme:light;
-    --bg:#f8f8f9; --card:#ffffff; --line:#e6e6ea; --raise:#f1f1f4;
+    --bg:#f8f8f9; --card:#ffffff; --line:#e6e6ea; --raise:#f1f1f4; --stripe:#fafafb;
     --ink:#0f0f12; --ink2:#55555f; --ink3:#8b8b95; --grid:#f0f0f3;
     --s1:#2563eb; --s2:#c2410c; --s3:#047857; --s4:#a16207;
     --s5:#db2777; --s6:#15803d; --s7:#6d28d9; --s8:#b91c1c;
@@ -41,7 +41,7 @@
 }
 :root[data-theme=light]{
   color-scheme:light;
-  --bg:#f8f8f9; --card:#ffffff; --line:#e6e6ea; --raise:#f1f1f4;
+  --bg:#f8f8f9; --card:#ffffff; --line:#e6e6ea; --raise:#f1f1f4; --stripe:#fafafb;
   --ink:#0f0f12; --ink2:#55555f; --ink3:#8b8b95; --grid:#f0f0f3;
   --s1:#2563eb; --s2:#c2410c; --s3:#047857; --s4:#a16207;
   --s5:#db2777; --s6:#15803d; --s7:#6d28d9; --s8:#b91c1c;
@@ -175,9 +175,10 @@ table.rows tr.lit{background:var(--raise)}
 #tip tr.tot td{border-top:1px solid var(--line);padding-top:5px;
  color:var(--ink2);font-weight:600}
 /* Disclosure for an application's own processes. */
-.disc{border:0;background:transparent;color:var(--ink3);cursor:pointer;
- font-size:10px;line-height:1;padding:2px 5px 2px 0;margin-left:-3px}
-.disc:hover{color:var(--ink)}
+.disc{border:0;background:transparent;color:var(--ink2);cursor:pointer;
+ font-size:15px;line-height:1;padding:0 6px 0 0;margin-left:-4px;
+ width:22px;height:22px;border-radius:6px;vertical-align:-3px}
+.disc:hover{color:var(--ink);background:var(--raise)}
 tr.parent > td:first-child{font-weight:inherit}
 tr.kid > td:first-child{padding-left:26px;color:var(--ink2)}
 tr.kid > td{background:color-mix(in srgb, var(--raise) 55%, transparent)}
@@ -277,6 +278,34 @@ g.shift{will-change:transform}
  grid-column:2}
 #qresults .none{padding:11px 10px;color:var(--ink3);font-size:12px}
 #qresults .sys{opacity:.72}
+/* The description of a chart is worth having and not worth three permanent
+   lines above every one of them. It lives on a marker beside the heading. */
+.info{display:inline-flex;align-items:center;justify-content:center;
+ width:16px;height:16px;margin-left:7px;padding:0;border-radius:50%;
+ border:1px solid var(--line);background:transparent;color:var(--ink3);
+ font-size:10px;font-style:italic;font-family:Georgia,serif;line-height:1;
+ cursor:help;vertical-align:2px;position:relative}
+.info:hover,.info:focus-visible{border-color:var(--s1);color:var(--ink)}
+.info em{display:none;position:absolute;left:-8px;top:22px;z-index:40;
+ width:max-content;max-width:300px;padding:9px 11px;border-radius:9px;
+ background:var(--bg);border:1px solid var(--line);color:var(--ink2);
+ font:inherit;font-size:11.5px;font-style:normal;line-height:1.5;
+ text-align:left;white-space:normal;box-shadow:0 12px 30px rgba(0,0,0,.4)}
+.info:hover em,.info:focus em,.info:focus-within em{display:block}
+/* The card clips its charts so a panned plot cannot spill; a tooltip anchored
+   near the right edge would be clipped with them, so it opens leftwards
+   there instead. */
+.grid .card:nth-child(even) .info em{left:auto;right:-8px}
+
+/* Tables get their own scrolling. A card that grows to fit a hundred rows
+   pushes everything below it off the page, and a table wider than a phone or
+   the menu bar panel used to overflow the layout rather than its own box. */
+.tablewrap{overflow:auto;max-height:min(60vh,520px);
+ border-radius:9px;border:1px solid var(--line)}
+.tablewrap table{margin:0}
+.tablewrap thead th,.tablewrap table tr:first-child th{position:sticky;top:0;
+ z-index:2;background:var(--card)}
+
 .menuwrap{position:relative}
 #burger{width:31px;height:29px;font-size:14px;line-height:1}
 #burgermenu{position:absolute;right:0;top:34px;min-width:206px;z-index:75;
@@ -347,6 +376,10 @@ g.shift{will-change:transform}
  box-shadow:0 1px 2px rgba(0,0,0,.3)}
 .metrics{display:inline-flex;margin-bottom:16px}
 table.rows{width:100%;border-collapse:collapse;font-size:13.5px}
+/* Every other row tinted. A dense table of numbers is read across, and a
+   plain grid gives the eye nothing to hold the line with. */
+table.rows tr:nth-child(even of :not([hidden])){background:var(--stripe)}
+table.rows tr:hover{background:var(--raise)}
 table.rows th{text-align:left;font-weight:520;color:var(--ink3);font-size:11px;
  text-transform:uppercase;letter-spacing:.04em;padding:0 10px 8px 0;
  border-bottom:1px solid var(--line);white-space:nowrap}
@@ -517,69 +550,55 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
 
 <div class="grid" id="history">
   <div class="card wide" data-chart="cpu">
-    <h2>CPU by process</h2>
-    <p id="cpusub">Stacked from each process's average over the interval.</p>
+    <h2>CPU by process<button class="info" type="button" aria-label="What this shows">i<em id="cpusub">Stacked from each process's average over the interval.</em></button></h2>
     <div id="cpu"><div class="msg">Loading&hellip;</div></div>
     <div class="legend" id="cpuleg"></div>
     <div id="detail"></div>
   </div>
   <div class="card" data-chart="mem">
-    <h2>Memory by process</h2>
-    <p>Resident set. An app and its helpers count as one.</p>
+    <h2>Memory by process<button class="info" type="button" aria-label="What this shows">i<em>Resident set. An app and its helpers count as one.</em></button></h2>
     <div id="mem"></div>
     <div class="legend" id="memleg"></div>
   </div>
   <div class="card" data-chart="energy">
-    <h2>Energy by process</h2>
-    <p>Share of the energy macOS attributed in each interval. Shown as a percentage because the underlying unit is undocumented &mdash; a share is exact, a wattage would be a guess.</p>
+    <h2>Energy by process<button class="info" type="button" aria-label="What this shows">i<em>Share of the energy macOS attributed in each interval. Shown as a percentage because the underlying unit is undocumented &mdash; a share is exact, a wattage would be a guess.</em></button></h2>
     <div id="energy"></div>
     <div class="legend" id="energyleg"></div>
   </div>
   <div class="card" data-chart="net">
-    <h2>Network by process</h2>
-    <p>Bytes in and out per second, summed across an app's processes.</p>
+    <h2>Network by process<button class="info" type="button" aria-label="What this shows">i<em>Bytes in and out per second, summed across an app's processes.</em></button></h2>
     <div id="net"></div>
     <div class="legend" id="netleg"></div>
   </div>
   <div class="card" data-chart="disk">
-    <h2>Disk by process</h2>
-    <p>Bytes read and written per second.</p>
+    <h2>Disk by process<button class="info" type="button" aria-label="What this shows">i<em>Bytes read and written per second.</em></button></h2>
     <div id="disk"></div>
     <div class="legend" id="diskleg"></div>
   </div>
   <div class="card" data-chart="busy">
-    <h2>System CPU</h2>
-    <p>Every process together, including those outside the top ranks.</p>
+    <h2>System CPU<button class="info" type="button" aria-label="What this shows">i<em>Every process together, including those outside the top ranks.</em></button></h2>
     <div id="busy"></div>
   </div>
   <div class="card" data-chart="load">
-    <h2>Load average</h2>
-    <p>Threads wanting a core, one-minute mean.</p>
+    <h2>Load average<button class="info" type="button" aria-label="What this shows">i<em>Threads wanting a core, one-minute mean.</em></button></h2>
     <div id="load"></div>
   </div>
   <div class="card" data-chart="swap">
-    <h2>Swap used</h2>
-    <p>Memory pushed out to disk.</p>
+    <h2>Swap used<button class="info" type="button" aria-label="What this shows">i<em>Memory pushed out to disk.</em></button></h2>
     <div id="swap"></div>
   </div>
   <div class="card" data-chart="free">
-    <h2>Free disk</h2>
-    <p>Space left on the volume holding the database.</p>
+    <h2>Free disk<button class="info" type="button" aria-label="What this shows">i<em>Space left on the volume holding the database.</em></button></h2>
     <div id="free"></div>
   </div>
 
   <div class="card wide" data-chart="storage" id="storagecard">
-    <h2>Disk space by application</h2>
-    <p>The bundle, its data in Application&nbsp;Support, and its caches
-      together &mdash; measured once a day, because it is a size rather than a
-      rate.</p>
+    <h2>Disk space by application<button class="info" type="button" aria-label="What this shows">i<em>The bundle, its data in Application&nbsp;Support, and its caches together &mdash; measured once a day, because it is a size rather than a rate.</em></button></h2>
     <div id="storagebody"><div class="msg">Not measured yet.</div></div>
   </div>
 
   <div class="card wide" data-chart="activity" id="activity">
-    <h2>When this machine is busy</h2>
-    <p>One cell per hour, darker for busier. Hollow cells are hours nothing
-    was sampled &mdash; asleep or shut down &mdash; which is not the same as idle.</p>
+    <h2>When this machine is busy<button class="info" type="button" aria-label="What this shows">i<em>One cell per hour, darker for busier. Hollow cells are hours nothing was sampled &mdash; asleep or shut down &mdash; which is not the same as idle.</em></button></h2>
     <div id="heat"><div class="msg">Loading&hellip;</div></div>
   </div>
 
@@ -592,8 +611,9 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
   </div>
 
   <div class="card wide" id="ports">
-  <h2>Listening ports</h2>
-  <p>Everything accepting TCP connections on this machine right now.</p>
+  <h2>Listening ports<button class="info" type="button"
+      aria-label="What this shows">i<em>Everything accepting TCP connections on
+      this machine right now.</em></button></h2>
   <div id="portsbody"><div class="msg">Loading&hellip;</div></div>
   </div>
 </div>
@@ -1225,11 +1245,11 @@ var showDetail = function (ts) {
         (PINNED ? esc(PINNED) + " at " : "Everything running at ") +
         esc(fmtFull(ts)) + "</b>" +
         '<button id="detailclose" title="Close">Close</button></div>' +
-        "<table><tr><th>" + esc(fmtFull(ts)) +
+        '<div class="tablewrap"><table><tr><th>' + esc(fmtFull(ts)) +
         '</th><th class="num">avg</th><th class="num">peak</th>' +
         '<th class="num">at</th><th class="num">memory</th>' +
         '<th class="num">procs</th></tr>' +
-        groupRows(rows).map(detailRow).join("") + "</table>";
+        groupRows(rows).map(detailRow).join("") + "</table></div>";
       on("detailclose", "click", function () { el.innerHTML = ""; });
       wireDisclosure(el);
     })
@@ -2599,7 +2619,7 @@ var renderLive = function () {
       esc(e.exe) + '" data-force="1">Force</button></div></td>';
   };
 
-  el.innerHTML = '<table class="rows"><tr>' + head + "</tr>" +
+  el.innerHTML = '<div class="tablewrap"><table class="rows"><tr>' + head + "</tr>" +
     rows.map(function (g, i) {
       var e = g.row;
       var flag = e.waiting
@@ -2630,7 +2650,7 @@ var renderLive = function () {
           (k.args ? '<span class="sub">' + esc(k.args) + "</span>" : "") +
           "</td>" + cellsFor(k) + actionsFor(k) + "</tr>";
       }).join("");
-    }).join("") + "</table>" +
+    }).join("") + "</table></div>" +
     (hidden > 0
       ? '<div class="hiddennote">Showing ' + groups.length +
         " applications. " + hidden +
@@ -2716,7 +2736,8 @@ var loadPorts = function () {
   var el = document.getElementById("portsbody");
   fetch("/api/ports").then(function (r) { return r.json(); }).then(function (rows) {
     if (!rows.length) { el.innerHTML = '<div class="msg">Nothing is listening.</div>'; return; }
-    el.innerHTML = '<table class="rows"><tr><th class="num">Port</th>' +
+    el.innerHTML = '<div class="tablewrap"><table class="rows">' +
+      '<tr><th class="num">Port</th>' +
       "<th>Process</th><th class='num'>PID</th><th>User</th><th>Address</th>" +
       "<th></th></tr>" +
       rows.map(function (r) {
@@ -2730,7 +2751,7 @@ var loadPorts = function () {
           '<button class="danger" data-pid="' + r.pid + '" data-name="' +
           esc(r.command) + " on :" + r.port + '" data-force="1">Force</button>' +
           "</div></td></tr>";
-      }).join("") + "</table>";
+      }).join("") + "</table></div>";
     wireKillButtons(el);
   }).catch(function () {
     el.innerHTML = '<div class="msg">Could not list ports.</div>';
