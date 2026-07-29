@@ -53,7 +53,7 @@ _cli = _install('cli', '"""procwatch install | open | serve | record | backup | 
 
 _INDEX_HTML_B64 = (
     "PCFkb2N0eXBlIGh0bWw+CjxodG1sIGxhbmc9ImVuIj4KPGhlYWQ+CjxtZXRhIGNoYXJzZXQ9InV0"
-    "Zi04Ij4KPHRpdGxlPnByb2N3YXRjaDwvdGl0bGU+CjxtZXRhIG5hbWU9InZpZXdwb3J0IiBjb250"
+    "Zi04Ij4KPHRpdGxlPlByb2N3YXRjaDwvdGl0bGU+CjxtZXRhIG5hbWU9InZpZXdwb3J0IiBjb250"
     "ZW50PSJ3aWR0aD1kZXZpY2Utd2lkdGgsaW5pdGlhbC1zY2FsZT0xIj4KPG1ldGEgbmFtZT0icHJv"
     "Y3dhdGNoLXRva2VuIiBjb250ZW50PSJfX1BST0NXQVRDSF9UT0tFTl9fIj4KPHN0eWxlPgovKiBD"
     "YXRlZ29yaWNhbCBzdGVwcyBhcmUgdGhlIGRhdGF2aXogcmVmZXJlbmNlIHBhbGV0dGUgaW4gaXRz"
@@ -320,7 +320,7 @@ _INDEX_HTML_B64 = (
     "cDoyMHB4O2xpbmUtaGVpZ2h0OjEuNn0KLm5vdGUgY29kZXtiYWNrZ3JvdW5kOnZhcigtLXJhaXNl"
     "KTtib3JkZXI6MXB4IHNvbGlkIHZhcigtLWxpbmUpO2JvcmRlci1yYWRpdXM6NHB4OwogcGFkZGlu"
     "ZzoxcHggNXB4O2ZvbnQtc2l6ZToxMS41cHh9Cjwvc3R5bGU+CjwvaGVhZD4KPGJvZHk+CjxkaXYg"
-    "Y2xhc3M9IndyYXAiPgoKPGhlYWRlcj4KICA8ZGl2IGNsYXNzPSJicmFuZCI+cHJvY3dhdGNoIDxz"
+    "Y2xhc3M9IndyYXAiPgoKPGhlYWRlcj4KICA8ZGl2IGNsYXNzPSJicmFuZCI+UHJvY3dhdGNoIDxz"
     "cGFuPiZtaWRkb3Q7IDxzcGFuIGlkPSJ0aWVybmFtZSI+Jm5ic3A7PC9zcGFuPjwvc3Bhbj4KICAg"
     "IDwvZGl2PgogIDxkaXYgY2xhc3M9InRvb2xzIj4KICAgIDxzZWxlY3QgaWQ9InJhbmdlIiBhcmlh"
     "LWxhYmVsPSJUaW1lIHJhbmdlIj4KICAgICAgPG9wdGlvbiB2YWx1ZT0iMzYwMCI+MSBob3VyPC9v"

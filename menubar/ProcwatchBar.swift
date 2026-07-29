@@ -38,7 +38,7 @@ func menuBarIcon() -> NSImage? {
         // No artwork in the bundle (running the binary outside the .app):
         // a glyph is better than an empty menu bar slot.
         let fallback = NSImage(systemSymbolName: "chart.line.uptrend.xyaxis",
-                               accessibilityDescription: "procwatch")
+                               accessibilityDescription: "Procwatch")
         fallback?.isTemplate = true
         return fallback
     }
@@ -52,7 +52,7 @@ func menuBarIcon() -> NSImage? {
              from: .zero, operation: .sourceOver, fraction: 1.0)
     scaled.unlockFocus()
     scaled.isTemplate = false
-    scaled.accessibilityDescription = "procwatch"
+    scaled.accessibilityDescription = "Procwatch"
     return scaled
 }
 
@@ -183,7 +183,7 @@ final class Controller: NSObject, NSApplicationDelegate, NSPopoverDelegate,
         menu.addItem(withTitle: "Open in browser", action: #selector(openBrowser),
                      keyEquivalent: "").target = self
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit procwatch bar", action: #selector(quit),
+        menu.addItem(withTitle: "Quit Procwatch", action: #selector(quit),
                      keyEquivalent: "q").target = self
         statusItem.menu = menu
         sender.performClick(nil)

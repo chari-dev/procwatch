@@ -32,7 +32,7 @@ uninstall() {
     printf '\nRemoving procwatch\n'
     launchctl unload "$PLIST" 2>/dev/null || true
     rm -f "$PLIST" && say "recorder stopped"
-    osascript -e 'quit app "procwatch"' 2>/dev/null || true
+    osascript -e 'quit app "Procwatch"' 2>/dev/null || true
     pkill -f "ProcwatchBar" 2>/dev/null || true
     rm -rf "$APP" && say "menu bar app removed"
     rm -rf "$APP_SUPPORT" && say "program removed"

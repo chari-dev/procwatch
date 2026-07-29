@@ -22,7 +22,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>CFBundleName</key><string>procwatch</string>
+  <key>CFBundleName</key><string>Procwatch</string>
   <key>CFBundleIdentifier</key><string>dev.procwatch.bar</string>
   <key>CFBundleExecutable</key><string>ProcwatchBar</string>
   <key>CFBundlePackageType</key><string>APPL</string>
@@ -42,7 +42,7 @@ if [ "${PROCWATCH_NO_INSTALL:-}" = "1" ]; then
   echo "built $(pwd)/$APP (not installed)"
   exit 0
 fi
-osascript -e 'quit app "procwatch"' 2>/dev/null || true
+osascript -e 'quit app "Procwatch"' 2>/dev/null || true
 pkill -f "$APP/Contents/MacOS/ProcwatchBar" 2>/dev/null || true
 if rm -rf "$DEST" 2>/dev/null && cp -R "$APP" "$DEST" 2>/dev/null; then
   # Clear the icon cache entry for the new bundle, otherwise Finder keeps

@@ -1,12 +1,12 @@
 <img src="docs/images/icon.png" width="112" align="right" alt="">
 
-# procwatch
+# Procwatch
 
 **Per-process history for macOS.** Activity Monitor tells you what is slow
-right now, then forgets. procwatch remembers — so you can ask what ate the CPU
+right now, then forgets. Procwatch remembers — so you can ask what ate the CPU
 at 3am last Tuesday and get an answer.
 
-![The procwatch dashboard](docs/images/dashboard.png)
+![The Procwatch dashboard](docs/images/dashboard.png)
 
 No dependencies. macOS and Python 3.9+, nothing else. Around 110 MB of disk
 once it settles, and it never grows past that.
@@ -80,7 +80,7 @@ Spotlight and the app switcher. Its icon sits in your menu bar; click it for
 the dashboard in a panel sized to a quarter of the screen, or use **Open in
 browser** for the full-size version.
 
-The app carries its own copy of procwatch, so it runs wherever you drag it.
+The app carries its own copy of Procwatch, so it runs wherever you drag it.
 Swift with AppKit and WebKit — system frameworks, no Xcode project needed.
 Quitting it stops the viewer, not the recorder.
 
@@ -163,7 +163,7 @@ Or **Download a backup** in settings.
 A backup is one SQLite file, snapshotted while the recorder keeps writing —
 not a copy of the file, which would catch a write half-made. Restore describes
 both databases and asks before replacing anything, keeps a copy of the one it
-replaces, and refuses a file that is not a procwatch database rather than
+replaces, and refuses a file that is not a Procwatch database rather than
 finding out afterwards.
 
 ---
