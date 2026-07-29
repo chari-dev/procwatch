@@ -1,0 +1,2150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>procwatch</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="procwatch-token" content="__PROCWATCH_TOKEN__">
+<style>
+/* Categorical steps are the dataviz reference palette in its validated order.
+   Do not reorder: the ordering is what clears the adjacent colour-vision
+   separation gates, not decoration. */
+/* Beszel's own scale and hues -- near-black page, cards a step lighter, one
+   accent per metric -- with a slightly softer surface, larger radii and a
+   tighter type scale. Series slots keep the dataviz reference ordering, which
+   is what clears the adjacent colour-vision gates; the hues are Beszel's. */
+:root{
+  color-scheme:dark;
+  --bg:#0a0a0c; --card:#131317; --line:#26262c; --raise:#1b1b21;
+  --ink:#fafafa; --ink2:#a3a3ad; --ink3:#6d6d78; --grid:#1e1e24;
+  --s1:#3b82f6; --s2:#ea580c; --s3:#059669; --s4:#a16207;
+  --s5:#ec4899; --s6:#16a34a; --s7:#8b5cf6; --s8:#ef4444;
+  /* Stroke steps: the same hues lifted, so a near-opaque fill still shows a
+     readable edge. Identity stays with the validated --s slots. */
+  --l1:#7cb0ff; --l2:#fb8b4c; --l3:#34d399; --l4:#e3b53c;
+  --l5:#f9a8d4; --l6:#4ade80; --l7:#c4b5fd; --l8:#fca5a5;
+  --other:#52525b; --ok:#22c55e;
+  --r:14px; --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.5);
+}
+@media (prefers-color-scheme:light){
+  :root:where(:not([data-theme=dark])){
+    color-scheme:light;
+    --bg:#f8f8f9; --card:#ffffff; --line:#e6e6ea; --raise:#f1f1f4;
+    --ink:#0f0f12; --ink2:#55555f; --ink3:#8b8b95; --grid:#f0f0f3;
+    --s1:#2563eb; --s2:#c2410c; --s3:#047857; --s4:#a16207;
+    --s5:#db2777; --s6:#15803d; --s7:#6d28d9; --s8:#b91c1c;
+    --l1:#1e40af; --l2:#9a3412; --l3:#065f46; --l4:#854d0e;
+    --l5:#9d174d; --l6:#166534; --l7:#5b21b6; --l8:#991b1b;
+    --other:#a1a1aa;
+    --shadow:0 1px 2px rgba(0,0,0,.05),0 8px 24px -14px rgba(0,0,0,.15);
+  }
+}
+:root[data-theme=light]{
+  color-scheme:light;
+  --bg:#f8f8f9; --card:#ffffff; --line:#e6e6ea; --raise:#f1f1f4;
+  --ink:#0f0f12; --ink2:#55555f; --ink3:#8b8b95; --grid:#f0f0f3;
+  --s1:#2563eb; --s2:#c2410c; --s3:#047857; --s4:#a16207;
+  --s5:#db2777; --s6:#15803d; --s7:#6d28d9; --s8:#b91c1c;
+  --l1:#1e40af; --l2:#9a3412; --l3:#065f46; --l4:#854d0e;
+  --l5:#9d174d; --l6:#166534; --l7:#5b21b6; --l8:#991b1b;
+  --other:#a1a1aa;
+  --shadow:0 1px 2px rgba(0,0,0,.05),0 8px 24px -14px rgba(0,0,0,.15);
+}
+*{box-sizing:border-box}
+html,body{max-width:100%;overflow-x:hidden}
+body{margin:0;background:var(--bg);color:var(--ink);
+ font:15px/1.55 ui-sans-serif,-apple-system,"SF Pro Text",system-ui,sans-serif;
+ -webkit-font-smoothing:antialiased}
+.wrap{max-width:1480px;margin:0 auto;padding:30px 28px 90px}
+/* Sticky rather than fixed: it keeps its place in the flow, so nothing has to
+   be padded down by a hand-measured header height that then drifts whenever
+   the header changes. The negative top margin and matching padding let the
+   blurred bar run to the top edge of the viewport while the content inside
+   stays aligned with the page. */
+header{position:sticky;top:0;z-index:30;
+ display:flex;align-items:center;justify-content:space-between;gap:14px;
+ margin:-26px -24px 22px;padding:16px 24px;
+ border-bottom:1px solid var(--line);
+ background:color-mix(in srgb, var(--bg) 82%, transparent);
+ backdrop-filter:saturate(180%) blur(14px);
+ -webkit-backdrop-filter:saturate(180%) blur(14px)}
+@supports not (backdrop-filter: blur(1px)){header{background:var(--bg)}}
+.brand{font-weight:640;letter-spacing:-.02em;font-size:16px}
+.brand span{color:var(--ink3);font-weight:450}
+.tools{display:flex;align-items:center;gap:8px}
+button{font:inherit;color:var(--ink2);background:var(--card);cursor:pointer;
+ border:1px solid var(--line);border-radius:9px;padding:6px 12px;font-size:12.5px;
+ transition:color .12s,border-color .12s,background .12s}
+button:hover{color:var(--ink);border-color:var(--ink3)}
+select{font:inherit;font-size:12.5px;color:var(--ink);background:var(--card);
+ border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer}
+h1{font-size:32px;font-weight:640;letter-spacing:-.03em;margin:0 0 12px}
+.strip{display:flex;flex-wrap:wrap;color:var(--ink2);font-size:13.5px;margin-bottom:28px}
+.strip div{padding:0 12px;border-left:1px solid var(--line)}
+.strip div:first-child{padding-left:0;border-left:0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:900px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+ padding:24px 24px 16px;min-width:0;overflow:hidden;box-shadow:var(--shadow)}
+.card.wide{grid-column:1/-1}
+.card h2{font-size:17px;font-weight:600;letter-spacing:-.015em;margin:0 0 4px}
+.card p{margin:0 0 18px;color:var(--ink3);font-size:13px;line-height:1.5}
+/* Charts drew outside their own box, so a tall stack pushed the
+   page wider and taller than the viewport and the layout jumped
+   around while scrolling. They are clipped to their card now. */
+svg{display:block;width:100%;max-width:100%;overflow:hidden}
+.gl{stroke:var(--grid);stroke-width:1}
+.ax{fill:var(--ink3);font-size:12px}
+.legend{display:flex;flex-wrap:wrap;gap:7px 18px;margin-top:14px;padding-top:14px;
+ border-top:1px solid var(--line);font-size:13px}
+.legend b{font-weight:450;color:var(--ink2)}
+.legend i{width:9px;height:9px;border-radius:2.5px;display:inline-block;
+ margin-right:6px;vertical-align:0}
+.legend em{font-style:normal;color:var(--ink3);margin-left:5px;
+ font-variant-numeric:tabular-nums}
+.tip{position:fixed;pointer-events:none;opacity:0;transition:opacity .1s;
+ background:var(--card);border:1px solid var(--line);border-radius:11px;padding:10px 12px;
+ backdrop-filter:blur(8px);
+ font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);z-index:20;max-width:360px}
+.tip h4{margin:0 0 7px;font-size:11px;color:var(--ink2);font-weight:520}
+.tip table{border-collapse:collapse;width:100%}
+.tip td{padding:1.5px 0;white-space:nowrap}
+.tip td:last-child{text-align:right;padding-left:18px;color:var(--ink);
+ font-variant-numeric:tabular-nums}
+.tip i{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:7px}
+#detail{margin-top:15px}
+.detailhead{display:flex;align-items:center;justify-content:space-between;
+ gap:12px;padding-bottom:10px;margin-bottom:4px}
+.detailhead b{font-weight:560;font-size:13.5px}
+.detailhead button{padding:4px 12px;font-size:12px}
+#detail table{width:100%;border-collapse:collapse;font-size:12.5px}
+#detail th{text-align:left;font-weight:520;color:var(--ink3);font-size:11px;
+ text-transform:uppercase;letter-spacing:.04em;padding:0 10px 7px 0;
+ border-bottom:1px solid var(--line)}
+#detail td{padding:7px 10px 7px 0;border-bottom:1px solid var(--line);vertical-align:top}
+#detail tr:last-child td{border-bottom:0}
+#detail .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+#detail .cmd{color:var(--ink3);font-size:11.5px;word-break:break-all;
+ max-width:520px;display:block;margin-top:2px}
+.msg{color:var(--ink3);font-size:13px;padding:26px 0;line-height:1.5}
+.msg em{font-style:normal;color:var(--ink2)}
+.hiddennote{color:var(--ink3);font-size:12px;padding-top:12px}
+.hiddennote em{font-style:normal;color:var(--ink2)}
+.heat{display:flex;gap:12px;align-items:flex-start;overflow-x:auto;padding-bottom:4px}
+.heat .hours{display:flex;flex-direction:column;gap:3px;font-size:10.5px;
+ color:var(--ink3);padding-top:18px}
+.heat .hours div{height:13px;line-height:13px;text-align:right;min-width:30px}
+.heat .cols{display:flex;gap:3px}
+.heat .col{display:flex;flex-direction:column;gap:3px}
+.heat .day{font-size:10.5px;color:var(--ink3);height:15px;line-height:15px;
+ white-space:nowrap}
+.heat .cell{width:13px;height:13px;border-radius:3px;background:var(--raise)}
+.heat .cell.none{background:transparent;border:1px solid var(--line)}
+.heatfoot{display:flex;align-items:center;gap:8px;justify-content:flex-end;
+ margin-top:12px;font-size:11.5px;color:var(--ink3)}
+.heatfoot .cell{width:12px;height:12px;border-radius:3px}
+.band{transition:opacity .12s}
+.dimmed .band{opacity:.12}
+.dimmed .band.lit{opacity:1}
+.legend b{cursor:default;border-radius:5px;padding:1px 4px;margin:-1px -4px;
+ transition:background .12s}
+.legend b{cursor:pointer}
+.legend b:hover{background:var(--raise)}
+.legend b.pinned{background:var(--raise);box-shadow:inset 0 0 0 1px var(--line);
+ color:var(--ink)}
+table.rows tr[data-series]{cursor:pointer}
+table.rows tr.pinned{background:var(--raise);box-shadow:inset 2px 0 0 var(--s1)}
+table.rows th.sortable{cursor:pointer;user-select:none}
+table.rows th.sortable:hover{color:var(--ink)}
+table.rows th .arrow{opacity:.35;margin-left:4px}
+table.rows th.active .arrow{opacity:1}
+table.rows tr.lit{background:var(--raise)}
+.cardhead{display:flex;align-items:flex-start;justify-content:space-between;
+ gap:16px;flex-wrap:wrap}
+.cardhead h2{margin-bottom:3px}
+.toggle{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;
+ padding:5px 12px 5px 8px;border-radius:99px;flex-shrink:0;font-size:12.5px}
+.toggle .knob{width:30px;height:17px;border-radius:99px;background:var(--line);
+ position:relative;transition:background .15s;flex-shrink:0}
+.toggle .knob::after{content:"";position:absolute;top:2px;left:2px;width:13px;
+ height:13px;border-radius:50%;background:var(--ink3);transition:transform .15s,
+ background .15s}
+.toggle[aria-pressed=true]{color:var(--ink);border-color:var(--s1)}
+.toggle[aria-pressed=true] .knob{background:var(--s1)}
+.toggle[aria-pressed=true] .knob::after{transform:translateX(13px);background:#fff}
+#tip tr.tot td{border-top:1px solid var(--line);padding-top:5px;
+ color:var(--ink2);font-weight:600}
+.brush{fill:var(--ink);fill-opacity:.10;stroke:var(--ink3);stroke-width:1;
+ shape-rendering:crispEdges;pointer-events:none}
+/* Hinting the transform keeps the browser from re-rasterising the whole plot
+   on every frame of a pan. */
+g.shift{will-change:transform}
+#banner{position:fixed;left:50%;transform:translateX(-50%);top:10px;z-index:70;
+ background:var(--raise);border:1px solid var(--line);border-radius:9px;
+ padding:8px 14px;font-size:12.5px;color:var(--ink2);
+ box-shadow:0 10px 30px rgba(0,0,0,.35)}
+#banner[hidden]{display:none}
+.sheet{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.45);
+ display:flex;align-items:flex-start;justify-content:center;padding:64px 20px;
+ overflow:auto;backdrop-filter:blur(3px)}
+.sheet[hidden]{display:none}
+.sheetbox{width:min(560px,100%);background:var(--bg);border:1px solid var(--line);
+ border-radius:14px;padding:20px 22px 24px;box-shadow:0 24px 60px rgba(0,0,0,.4)}
+.sheethead{display:flex;align-items:center;justify-content:space-between;
+ margin-bottom:6px}
+.sheethead h2{margin:0}
+#sheetclose{border:0;background:transparent;color:var(--ink3);font-size:22px;
+ line-height:1;padding:2px 6px;cursor:pointer}
+#sheetclose:hover{color:var(--ink)}
+.setrow{display:grid;grid-template-columns:150px 1fr;gap:10px 14px;
+ align-items:center;padding:13px 0;border-top:1px solid var(--line)}
+.setrow.wide{grid-template-columns:1fr}
+.setrow label{color:var(--ink2);font-size:13px;font-weight:500}
+.setrow small{grid-column:2;color:var(--ink3);font-size:11.5px;line-height:1.5}
+.setrow.wide small{grid-column:1}
+.setrow code{background:var(--raise);border-radius:4px;padding:1px 5px;
+ font-size:11px}
+.checks{display:flex;flex-wrap:wrap;gap:8px}
+.checks label{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;
+ border:1px solid var(--line);border-radius:8px;background:var(--raise);
+ cursor:pointer;font-size:12px;color:var(--ink2)}
+.checks label:hover{border-color:var(--s1)}
+.checks input{margin:0}
+.setactions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.hint{color:var(--ink3);font-size:11.5px}
+.ghost{border:1px solid var(--line);background:transparent;color:var(--ink2);
+ border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer}
+.ghost:hover{border-color:var(--s1);color:var(--ink)}
+.linkbtn{display:inline-flex;align-items:center;height:29px;padding:0 11px;
+ border:1px solid var(--line);border-radius:8px;background:var(--raise);
+ color:var(--ink2);font-size:12px;font-weight:500;text-decoration:none;
+ white-space:nowrap;transition:all .15s}
+.linkbtn:hover{background:var(--s1);color:var(--ink);border-color:var(--s1)}
+.liveage{font-size:11px;font-weight:450;color:var(--ink3);margin-left:9px;
+ letter-spacing:0;text-transform:none;vertical-align:1px}
+.summary{display:flex;align-items:stretch;gap:0;background:var(--card);
+ border:1px solid var(--line);border-radius:var(--r);padding:0;
+ margin-bottom:22px;overflow-x:auto;box-shadow:var(--shadow)}
+.stat{padding:13px 20px;border-left:1px solid var(--line);flex:1 1 0;
+ min-width:132px}
+.stat:first-child{border-left:0}
+.stat .k{color:var(--ink3);font-size:11px;font-weight:520;letter-spacing:.04em;
+ text-transform:uppercase;white-space:nowrap}
+.stat .row{display:flex;align-items:center;gap:9px;margin-top:6px}
+.stat .v{font-size:15px;font-weight:560;letter-spacing:-.01em;white-space:nowrap;
+ font-variant-numeric:tabular-nums}
+.stat .v small{font-size:11.5px;font-weight:450;color:var(--ink3);margin-left:1px}
+.bar{height:10px;width:54px;border-radius:99px;background:var(--line);
+ overflow:hidden;flex-shrink:0}
+.bar i{display:block;height:100%;border-radius:99px;transition:width .3s;
+ min-width:3px}
+.stat .row{gap:10px}
+.stat .sub2{color:var(--ink3);font-size:11px;margin-top:4px;
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tabs{display:flex;gap:2px;background:var(--raise);border:1px solid var(--line);
+ border-radius:10px;padding:3px}
+.tabs button{border:0;background:transparent;border-radius:7px;padding:5px 12px}
+.tabs button.on{background:var(--card);color:var(--ink);
+ box-shadow:0 1px 2px rgba(0,0,0,.3)}
+.metrics{display:inline-flex;margin-bottom:16px}
+table.rows{width:100%;border-collapse:collapse;font-size:13.5px}
+table.rows th{text-align:left;font-weight:520;color:var(--ink3);font-size:11px;
+ text-transform:uppercase;letter-spacing:.04em;padding:0 10px 8px 0;
+ border-bottom:1px solid var(--line);white-space:nowrap}
+table.rows td{padding:11px 12px 11px 0;border-bottom:1px solid var(--line);
+ vertical-align:middle}
+table.rows tr:last-child td{border-bottom:0}
+table.rows .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+table.rows .sub{color:var(--ink3);font-size:11px;display:block}
+.pill{display:inline-block;background:var(--raise);border:1px solid var(--line);
+ border-radius:5px;padding:0 6px;font-size:11px;
+ font-variant-numeric:tabular-nums;margin-right:4px}
+.warn{color:#e6a23c}
+.act{display:flex;gap:6px;justify-content:flex-end}
+.act button{padding:4px 9px;font-size:11.5px}
+.act button.danger:hover{color:#fff;background:#b4241f;border-color:#b4241f}
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);
+ background:var(--card);border:1px solid var(--line);border-radius:9px;
+ padding:10px 15px;font-size:12.5px;box-shadow:0 10px 30px rgba(0,0,0,.5);
+ opacity:0;transition:opacity .15s;pointer-events:none;z-index:40}
+.note{color:var(--ink3);font-size:12px;margin-top:20px;line-height:1.6}
+.note code{background:var(--raise);border:1px solid var(--line);border-radius:4px;
+ padding:1px 5px;font-size:11.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="brand">procwatch <span>&middot; <span id="tiername">&nbsp;</span></span>
+    </div>
+  <div class="tools">
+    <select id="range" aria-label="Time range">
+      <option value="3600">1 hour</option>
+      <option value="43200">12 hours</option>
+      <option value="86400" selected>24 hours</option>
+      <option value="604800">1 week</option>
+      <option value="2592000">30 days</option>
+      <option value="31536000">1 year</option>
+    </select>
+    <button id="showsys" class="toggle" aria-pressed="false"
+            title="Show or hide processes that are part of macOS">
+      <span class="knob"></span><span id="showsyslabel">all processes</span>
+    </button>
+    <a id="inbrowser" class="linkbtn" href="/" target="_blank" rel="noopener"
+       title="Open this dashboard in your browser">Open in browser</a>
+    <button id="theme" title="Switch light and dark">&#9681;</button>
+    <button id="gear" title="Settings">&#9881;</button>
+  </div>
+</header>
+
+<div id="banner" hidden></div>
+
+<div class="sheet" id="settings" hidden>
+  <div class="sheetbox">
+    <div class="sheethead"><h2>Settings</h2>
+      <button id="sheetclose" title="Close">&times;</button></div>
+
+    <div class="setrow">
+      <label for="setrange">Time shown</label>
+      <select id="setrange">
+        <option value="3600">1 hour</option>
+        <option value="43200">12 hours</option>
+        <option value="86400">24 hours</option>
+        <option value="604800">1 week</option>
+        <option value="2592000">30 days</option>
+      </select>
+      <small>Where the charts start, and where double-clicking returns to.</small>
+    </div>
+
+    <div class="setrow">
+      <label for="setlimit">Processes per chart</label>
+      <select id="setlimit">
+        <option value="6">6</option>
+        <option value="12">12</option>
+        <option value="20">20</option>
+        <option value="30">30</option>
+      </select>
+      <small>Everything below the cut is summed into one band.</small>
+    </div>
+
+    <div class="setrow">
+      <label for="setheight">Chart height</label>
+      <select id="setheight">
+        <option value="180">Compact</option>
+        <option value="250">Normal</option>
+        <option value="360">Tall</option>
+      </select>
+    </div>
+
+    <div class="setrow">
+      <label for="setlive">Live refresh</label>
+      <select id="setlive">
+        <option value="1000">Every second</option>
+        <option value="2000">Every 2 seconds</option>
+        <option value="5000">Every 5 seconds</option>
+        <option value="0">Off</option>
+      </select>
+      <small>Only the table and summary. History always follows the recorder.</small>
+    </div>
+
+    <div class="setrow wide">
+      <label>Charts shown</label>
+      <div class="checks" id="setcharts"></div>
+    </div>
+
+    <div class="setrow wide">
+      <label>Recorded history</label>
+      <div class="setactions">
+        <a class="linkbtn" id="dobackup" href="/api/backup">Download a backup</a>
+        <span id="dbsize" class="hint"></span>
+      </div>
+      <small>A single SQLite file, snapshotted while the recorder keeps
+        running. To put one back:
+        <code>python3 procwatch.py restore &lt;file&gt;</code> &mdash; it
+        describes both databases and keeps a copy of the one it replaces.</small>
+    </div>
+
+    <div class="setrow wide">
+      <button id="setreset" class="ghost">Reset settings</button>
+    </div>
+  </div>
+</div>
+
+<h1 id="host">&nbsp;</h1>
+<div class="strip" id="strip"></div>
+
+<div class="summary" id="summary"></div>
+
+<div class="grid" id="history">
+  <div class="card wide" data-chart="cpu">
+    <h2>CPU by process</h2>
+    <p id="cpusub">Stacked from each process's average over the interval.</p>
+    <div id="cpu"><div class="msg">Loading&hellip;</div></div>
+    <div class="legend" id="cpuleg"></div>
+    <div id="detail"></div>
+  </div>
+  <div class="card" data-chart="mem">
+    <h2>Memory by process</h2>
+    <p>Resident set. An app and its helpers count as one.</p>
+    <div id="mem"></div>
+    <div class="legend" id="memleg"></div>
+  </div>
+  <div class="card" data-chart="energy">
+    <h2>Energy by process</h2>
+    <p>Share of the energy macOS attributed in each interval. Shown as a percentage because the underlying unit is undocumented &mdash; a share is exact, a wattage would be a guess.</p>
+    <div id="energy"></div>
+    <div class="legend" id="energyleg"></div>
+  </div>
+  <div class="card" data-chart="net">
+    <h2>Network by process</h2>
+    <p>Bytes in and out per second, summed across an app's processes.</p>
+    <div id="net"></div>
+    <div class="legend" id="netleg"></div>
+  </div>
+  <div class="card" data-chart="disk">
+    <h2>Disk by process</h2>
+    <p>Bytes read and written per second.</p>
+    <div id="disk"></div>
+    <div class="legend" id="diskleg"></div>
+  </div>
+  <div class="card" data-chart="busy">
+    <h2>System CPU</h2>
+    <p>Every process together, including those outside the top ranks.</p>
+    <div id="busy"></div>
+  </div>
+  <div class="card" data-chart="load">
+    <h2>Load average</h2>
+    <p>Threads wanting a core, one-minute mean.</p>
+    <div id="load"></div>
+  </div>
+  <div class="card" data-chart="swap">
+    <h2>Swap used</h2>
+    <p>Memory pushed out to disk.</p>
+    <div id="swap"></div>
+  </div>
+  <div class="card" data-chart="free">
+    <h2>Free disk</h2>
+    <p>Space left on the volume holding the database.</p>
+    <div id="free"></div>
+  </div>
+
+  <div class="card wide" data-chart="activity" id="activity">
+    <h2>When this machine is busy</h2>
+    <p>One cell per hour, darker for busier. Hollow cells are hours nothing
+    was sampled &mdash; asleep or shut down &mdash; which is not the same as idle.</p>
+    <div id="heat"><div class="msg">Loading&hellip;</div></div>
+  </div>
+
+  <div class="card wide" id="live">
+  <h2>Running now <span id="liveage" class="liveage">measuring&hellip;</span></h2>
+  <p>Read straight off the machine every two seconds &mdash; not from stored
+  history, so nothing here is stale. An app and its helpers are one row.
+  Quit asks; Force quit compels and loses unsaved work.</p>
+  <div id="livebody"><div class="msg">Loading&hellip;</div></div>
+  </div>
+
+  <div class="card wide" id="ports">
+  <h2>Listening ports</h2>
+  <p>Everything accepting TCP connections on this machine right now.</p>
+  <div id="portsbody"><div class="msg">Loading&hellip;</div></div>
+  </div>
+</div>
+
+<p class="note" id="historynote">Hover a name to pick it out of the charts,
+click to keep it picked out until you click again or press Escape.
+Scroll sideways on any chart to move back
+through time, or hold &#8984; and scroll to zoom. Click any point on the CPU chart for the full
+process list at that moment. Hatched bands are stretches the machine was asleep or not
+sampling &mdash; a gap is recorded, never interpolated across. Click any point on
+the CPU chart for the full process list at that moment.
+<code>python3 -m procwatch.cli status</code> reports what is stored.</p>
+
+<div class="tip" id="tip"></div>
+<div id="toast"></div>
+</div>
+
+<script>
+"use strict";
+var PAL = ["--s1", "--s2", "--s3", "--s4", "--s5", "--s6", "--s7", "--s8"];
+var W = 1120, PL = 52, PR = 14, PT = 12, PB = 26;
+var COVERED = 0.5;   // below this a bucket is mostly sleep: draw a gap, not a value
+var DATA = null, RANGE = 86400;
+
+/* The view is an end time and a span. END stays null while the page follows
+   the present, which is the normal state and the one that keeps auto-refresh
+   meaningful; scrolling pins it to a moment and the page stops chasing now.
+   Reaching the present again releases the pin rather than leaving the view
+   frozen one tick behind, which would look like a stall. */
+var END = null;
+var MIN_SPAN = 15 * 60;             // fifteen minutes is as tight as the data goes
+var MAX_SPAN = 400 * 86400;
+var panTimer = null;
+
+/* Custom properties are read a few hundred times per redraw and on every
+   mouse move. Each getComputedStyle forces the browser to flush pending style
+   work, so the reads were costing more than the drawing. They only change when
+   the theme does, so they are cached until then. */
+var CSS_CACHE = {};
+var css = function (n) {
+  if (!(n in CSS_CACHE)) {
+    CSS_CACHE[n] = getComputedStyle(document.documentElement)
+      .getPropertyValue(n).trim();
+  }
+  return CSS_CACHE[n];
+};
+/* Rebuilt once per render rather than cached against a data version: the
+   series list changes whenever a process appears or exits, and a stale map
+   would hand a new process the colour of a dead one. */
+var COLOUR_RANK = null;
+var colourOf = function (i, isOther) {
+  return css(isOther ? "--other" : PAL[i % PAL.length]);
+};
+var esc = function (s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c];
+  });
+};
+var fmtClock = function (s) {
+  var d = new Date(s * 1000);
+  return RANGE <= 86400
+    ? d.toLocaleTimeString([], {hour: "numeric", minute: "2-digit"})
+    : d.toLocaleDateString([], {month: "short", day: "numeric"});
+};
+var fmtFull = function (s) {
+  return new Date(s * 1000).toLocaleString([],
+    {month: "short", day: "numeric", hour: "numeric", minute: "2-digit"});
+};
+var fmtBytes = function (kb) {
+  if (kb >= 1048576) { return (kb / 1048576).toFixed(1) + " GB"; }
+  if (kb >= 1024) { return (kb / 1024).toFixed(0) + " MB"; }
+  return Math.round(kb) + " KB";
+};
+var niceMax = function (v) {
+  if (v <= 0) { return 1; }
+  var mag = Math.pow(10, Math.floor(Math.log(v) / Math.LN10));
+  return Math.ceil(v / mag * 2) / 2 * mag;
+};
+var xAt = function (i, n) { return PL + (W - PL - PR) * (i / ((n - 1) || 1)); };
+var yAt = function (v, ymax, h) {
+  return h - PB - (h - PT - PB) * Math.min(1, Math.max(0, v / ymax));
+};
+
+/* Every attribute value below is quoted. An unquoted value immediately
+   followed by "/>" pulls the slash into the value -- y2=264.5/> parses as
+   y2="264.5/", an invalid length, and the element silently does not render. */
+var hatchDefs = function () {
+  return '<defs><pattern id="hatch" width="7" height="7" ' +
+    'patternUnits="userSpaceOnUse" patternTransform="rotate(45)">' +
+    '<line x1="0" y1="0" x2="0" y2="7" stroke="' + css("--ink3") +
+    '" stroke-width="2" stroke-opacity="0.3" /></pattern></defs>';
+};
+/* The plot area, as a clip. Everything that moves with a pan is drawn inside
+   it, so a shifted chart cannot spill over the value labels. */
+var clipDef = function (elId, h) {
+  return '<defs><clipPath id="clip-' + elId + '"><rect x="' + PL + '" y="0" ' +
+    'width="' + (W - PL - PR) + '" height="' + h + '" /></clipPath></defs>';
+};
+
+var axesY = function (h, ymax, unit, ticks, fmt) {
+  var out = "", n = ticks || 4, i, v, y, label;
+  for (i = 0; i <= n; i++) {
+    v = ymax * i / n;
+    y = h - PB - (h - PT - PB) * (i / n);
+    out += '<line class="gl" x1="' + PL + '" x2="' + (W - PR) +
+           '" y1="' + y + '" y2="' + y + '" />';
+    // A raw axis reads "6500000" where the legend beside it says "5.3 GB".
+    // Both should speak the same language, so the chart's own formatter is
+    // used for the ticks too.
+    label = fmt ? fmt(v) : ((v >= 10 ? v.toFixed(0) : v.toFixed(1)) + unit);
+    out += '<text class="ax" x="' + (PL - 8) + '" y="' + (y + 3.5) +
+           '" text-anchor="end">' + esc(label) + "</text>";
+  }
+  return out;
+};
+
+// The time labels travel with the data. Leaving them fixed while the plot
+// slid underneath would put the wrong time under every point.
+var axesX = function (h, times) {
+  var out = "", step = Math.max(1, Math.floor(times.length / 6)), i;
+  for (i = 0; i < times.length; i += step) {
+    out += '<text class="ax" x="' + xAt(i, times.length) + '" y="' + (h - 8) +
+           '" text-anchor="middle">' + esc(fmtClock(times[i])) + "</text>";
+  }
+  return out;
+};
+
+var coverageAt = function (ts) {
+  var s = DATA.system, i;
+  for (i = 0; i < s.length; i++) { if (s[i].ts === ts) { return s[i].coverage; } }
+  return 1;
+};
+var gapBands = function (times, h) {
+  var out = "", i, half = (W - PL - PR) / ((times.length - 1) || 1) / 2, x0, x1;
+  for (i = 0; i < times.length; i++) {
+    if (coverageAt(times[i]) >= COVERED) { continue; }
+    x0 = Math.max(PL, xAt(i, times.length) - half);
+    x1 = Math.min(W - PR, xAt(i, times.length) + half);
+    out += '<rect x="' + x0 + '" y="' + PT + '" width="' + Math.max(1, x1 - x0) +
+           '" height="' + (h - PT - PB) + '" fill="url(#hatch)" />';
+  }
+  return out;
+};
+
+/* Stack cpu_avg, never cpu_max. Per-process maxima within a bucket did not
+   occur at the same instant, so summing them invents a total that never
+   existed and can exceed 100% x cores. Only the average is additive. */
+// "net" and "disk" are the sum of their two directions; everything else is
+// a stored column read straight through.
+var fieldValue = function (p, field) {
+  if (field === "net") { return (p.net_in || 0) + (p.net_out || 0); }
+  if (field === "disk") { return (p.disk_read || 0) + (p.disk_write || 0); }
+  return p[field] || 0;
+};
+
+/* Stacking order is smallest band at the bottom, growing upward, so the
+   chart reads as a sensible pile rather than whatever order the API ranked
+   in. Colour is assigned from each series' position in the API's canonical
+   ranking and travels with the process -- a band must not change colour
+   because its usage moved it up or down the pile, and it must keep the same
+   colour across all five charts. */
+var stackOrder = function (series, field) {
+  // Colour indexes into the UNFILTERED ranking, so a process keeps its colour
+  // when the macOS toggle changes which series are on screen. Indexing the
+  // filtered array would repaint everything on each flip.
+  return series.map(function (s) {
+    var total = 0;
+    s.points.forEach(function (p) { total += fieldValue(p, field); });
+    return {series: s, colourIndex: colourIndexOf(s), total: total};
+  }).sort(function (a, b) {
+    // __other__ is a remainder, not a process; it sits at the very bottom.
+    if (a.series.is_other !== b.series.is_other) {
+      return a.series.is_other ? -1 : 1;
+    }
+    return a.total - b.total;
+  });
+};
+
+var stack = function (series, field, times, asShare) {
+  /* asShare renormalises each bucket to 100%. Used for energy: macOS bills
+     it in an undocumented unit, and the rate it implies is not a plausible
+     wattage, so publishing an absolute figure would be a guess wearing a
+     unit. A share is exactly accurate -- the units cancel -- and "this app
+     accounted for N% of the energy attributed in this period" is the
+     comparison the number is actually good for. */
+  var totals = times.map(function (t) {
+    var sum = 0;
+    series.forEach(function (s) {
+      s.points.forEach(function (p) { if (p.ts === t) { sum += fieldValue(p, field); } });
+    });
+    return sum;
+  });
+  var base = times.map(function () { return 0; }), bands = [];
+  stackOrder(series, field).forEach(function (entry) {
+    var byTs = {}, top;
+    entry.series.points.forEach(function (p) { byTs[p.ts] = fieldValue(p, field); });
+    top = times.map(function (t, i) {
+      var v = byTs[t] || 0;
+      if (asShare) { v = totals[i] > 0 ? v / totals[i] * 100 : 0; }
+      return base[i] + v;
+    });
+    bands.push({series: entry.series, colourIndex: entry.colourIndex,
+                top: top.slice(), bottom: base.slice()});
+    base = top;
+  });
+  return {bands: bands, total: base, totals: totals, share: !!asShare};
+};
+
+/* Contiguous stretches of covered buckets. A gap ends a run and starts a
+   new one, so nothing is ever drawn across it. */
+var runsOf = function (times) {
+  var runs = [], current = null, i;
+  for (i = 0; i < times.length; i++) {
+    if (coverageAt(times[i]) < COVERED) { current = null; continue; }
+    if (!current) { current = []; runs.push(current); }
+    current.push(i);
+  }
+  return runs;
+};
+
+var areaPath = function (top, bottom, times, ymax, h) {
+  /* One CLOSED subpath per run. Walking the whole top and then the whole
+     bottom produces a single polygon that joins the end of one stretch to
+     the start of the next -- which is what drew those diagonal wedges
+     slicing across the chart wherever the machine had been asleep. */
+  var d = "", n = times.length;
+  runsOf(times).forEach(function (run) {
+    if (run.length < 2) { return; }
+    run.forEach(function (i, k) {
+      d += (k ? " L" : " M") + xAt(i, n) + " " + yAt(top[i], ymax, h);
+    });
+    for (var k = run.length - 1; k >= 0; k--) {
+      d += " L" + xAt(run[k], n) + " " + yAt(bottom[run[k]], ymax, h);
+    }
+    d += " Z";
+  });
+  return d;
+};
+var linePath = function (vals, times, ymax, h) {
+  var d = "", n = times.length;
+  runsOf(times).forEach(function (run) {
+    run.forEach(function (i, k) {
+      d += (k ? " L" : " M") + xAt(i, n) + " " + yAt(vals[i], ymax, h);
+    });
+  });
+  return d;
+};
+
+var drawStacked = function (elId, legId, field, unit, fmt, h, asShare) {
+  var times = DATA.times;
+  var shown = visibleSeries();
+
+  /* An empty chart should say why it is empty. Three different situations
+     produce a blank frame and they need different answers: nothing recorded
+     this metric at all, or everything that did is filtered out by the macOS
+     switch, or there is simply no data in the window. */
+  var hasAny = DATA.series.some(function (sr) {
+    return sr.points.some(function (p) { return fieldValue(p, field) > 0; });
+  });
+  var hasVisible = shown.some(function (sr) {
+    return sr.points.some(function (p) { return fieldValue(p, field) > 0; });
+  });
+  if (!hasVisible) {
+    document.getElementById(elId).innerHTML = '<div class="msg">' +
+      (hasAny
+        ? "Only background processes used this. Turn on " +
+          "<em>all processes</em> in the header to see them."
+        : "Nothing recorded here in this window.") + "</div>";
+    document.getElementById(legId).innerHTML = "";
+    return;
+  }
+
+  var st = stack(shown, field, times, asShare);
+  var ymax = asShare ? 100
+    : niceMax(Math.max.apply(null, st.total.concat([0.001])));
+  var svg = '<svg viewBox="0 0 ' + W + " " + h + '" preserveAspectRatio="none" ' +
+            'style="height:' + h + 'px">' + hatchDefs() + clipDef(elId, h);
+  svg += axesY(h, ymax, unit, 4, fmt);
+  svg += '<g class="shift" clip-path="url(#clip-' + elId + ')">';
+  svg += gapBands(times, h) + axesX(h, times);
+  st.bands.forEach(function (b) {
+    var col = colourOf(b.colourIndex, b.series.is_other);
+    var a = areaPath(b.top, b.bottom, times, ymax, h);
+    var l = linePath(b.top, times, ymax, h);
+    if (a) {
+      svg += '<path class="band" data-series="' + esc(b.series.exe) + '" d="' + a +
+             '" fill="' + col + '" fill-opacity="0.42" />';
+    }
+    if (l) {
+      svg += '<path class="band" data-series="' + esc(b.series.exe) + '" d="' + l +
+             '" fill="none" stroke="' + col + '" stroke-width="2" ' +
+             'stroke-linejoin="round" stroke-linecap="round" />';
+    }
+  });
+  svg += "</g>";
+  svg += '<line class="cross" x1="0" x2="0" y1="' + PT + '" y2="' + (h - PB) +
+         '" stroke="' + css("--ink3") + '" stroke-width="1" ' +
+         'stroke-dasharray="3 3" opacity="0" />';
+  svg += '<rect class="hit" x="' + PL + '" y="' + PT + '" width="' + (W - PL - PR) +
+         '" height="' + (h - PT - PB) +
+         '" fill="transparent" style="cursor:crosshair" />';
+  document.getElementById(elId).innerHTML = svg + "</svg>";
+  wireChart(elId, field, fmt, asShare);
+  wireScroll(document.getElementById(elId));
+  wireBrush(document.getElementById(elId));
+
+  var legEl = document.getElementById(legId);
+  // The denominator is the same for every entry, so it is summed once.
+  var grandTotal = 0;
+  if (asShare) {
+    universeSeries().forEach(function (o) {
+      o.points.forEach(function (p) { grandTotal += fieldValue(p, field); });
+    });
+  }
+  legEl.innerHTML = universeSeries().map(function (s) {
+    var peak;
+    if (asShare) {
+      var mine = 0;
+      s.points.forEach(function (p) { mine += fieldValue(p, field); });
+      peak = grandTotal > 0 ? mine / grandTotal * 100 : 0;
+    } else {
+      peak = Math.max.apply(null, s.points.map(function (p) {
+        if (field === "cpu_avg") { return p.cpu_max; }
+        if (field === "rss_avg") { return p.rss_max; }
+        return fieldValue(p, field);
+      }).concat([0]));
+    }
+    return '<b data-series="' + esc(s.exe) + '"' +
+           (PINNED === s.exe ? ' class="lit"' : "") + '><i style="background:' +
+           colourOf(colourIndexOf(s), s.is_other) + '"></i>' + esc(s.exe) + "<em>" +
+           esc(fmt(peak)) + "</em></b>";
+  }).join("");
+  wireHighlight(legEl);
+};
+
+var drawSimple = function (elId, key, colourVar, unit, scale) {
+  var times = DATA.times, h = 215, byTs = {};
+  DATA.system.forEach(function (p) { byTs[p.ts] = p[key] * (scale || 1); });
+  var vals = times.map(function (t) { return byTs[t] || 0; });
+  var ymax = niceMax(Math.max.apply(null, vals.concat([0.001])));
+  var col = css(colourVar);
+  var svg = '<svg viewBox="0 0 ' + W + " " + h + '" preserveAspectRatio="none" ' +
+            'style="height:' + h + 'px">' + hatchDefs() + clipDef(elId, h);
+  svg += axesY(h, ymax, unit, 3);
+  svg += '<g class="shift" clip-path="url(#clip-' + elId + ')">';
+  svg += gapBands(times, h) + axesX(h, times);
+  var line = linePath(vals, times, ymax, h);
+  if (line) {
+    svg += '<path d="' +
+      areaPath(vals, times.map(function () { return 0; }), times, ymax, h) +
+      '" fill="' + col + '" fill-opacity="0.18" />';
+    svg += '<path d="' + line + '" fill="none" stroke="' + col +
+           '" stroke-width="2" stroke-linejoin="round" />';
+  }
+  svg += "</g>";
+  svg += '<line class="cross" x1="0" x2="0" y1="' + PT + '" y2="' + (h - PB) +
+         '" stroke="' + css("--ink3") + '" stroke-width="1" ' +
+         'stroke-dasharray="3 3" opacity="0" />';
+  svg += '<rect class="hit" x="' + PL + '" y="' + PT + '" width="' + (W - PL - PR) +
+         '" height="' + (h - PT - PB) +
+         '" fill="transparent" style="cursor:crosshair" />';
+  document.getElementById(elId).innerHTML = svg + "</svg>";
+  wireSimple(elId, key, unit, scale);
+  wireScroll(document.getElementById(elId));
+  wireBrush(document.getElementById(elId));
+};
+
+var indexFromX = function (x) {
+  var n = DATA.times.length;
+  var i = Math.round((x - PL) / (((W - PL - PR) / ((n - 1) || 1)) || 1));
+  return Math.max(0, Math.min(n - 1, i));
+};
+var xInSvg = function (svg, clientX) {
+  var r = svg.getBoundingClientRect();
+  return (clientX - r.left) / r.width * W;
+};
+var indexFromEvent = function (e) {
+  return indexFromX(xInSvg(e.target.ownerSVGElement, e.clientX));
+};
+
+/* Every chart carries its own crosshair and hit target. This used to key off
+   a single "hit" id, so only the first chart drawn was ever interactive. */
+var placeTip = function (tip, e) {
+  tip.style.opacity = "1";
+  tip.style.left =
+    Math.min(window.innerWidth - tip.offsetWidth - 14, e.clientX + 16) + "px";
+  tip.style.top =
+    Math.min(window.innerHeight - tip.offsetHeight - 14, e.clientY + 14) + "px";
+};
+
+var rank2 = function (s, fallback) {
+  var i = 0, found = fallback;
+  (DATA && DATA.series ? DATA.series : []).forEach(function (o, n) {
+    if (o.exe === s.exe && (o.cmdline || "") === (s.cmdline || "")) { found = n; }
+    i = n;
+  });
+  return found;
+};
+
+var wireChart = function (elId, field, fmt, share) {
+  var root = document.getElementById(elId);
+  var hit = root.querySelector(".hit"), cross = root.querySelector(".cross");
+  if (!hit) { return; }
+  var tip = document.getElementById("tip");
+  hit.addEventListener("mousemove", function (e) {
+    var i = indexFromEvent(e), ts = DATA.times[i];
+    var x = xAt(i, DATA.times.length);
+    cross.setAttribute("x1", x);
+    cross.setAttribute("x2", x);
+    cross.setAttribute("opacity", "0.75");
+    // A pin means "I care about this one". Listing all twelve alongside it
+    // is the noise the pin was pressed to get rid of.
+    var candidates = visibleSeries().filter(function (s) {
+      return !PINNED || s.exe === PINNED;
+    });
+    // Computed once for the bucket, not once per row: it is the same sum
+    // every time, over every series, and the rows only differ in numerator.
+    // Summed once for the bucket and used twice: as the denominator on the
+    // share charts, and as the total on the ones where a total means
+    // something. Every series counts, including the folded remainder.
+    var bucketTotal = 0;
+    universeSeries().forEach(function (o) {
+      o.points.forEach(function (q) {
+        if (q.ts === ts) { bucketTotal += fieldValue(q, field); }
+      });
+    });
+    var shareTotal = bucketTotal;
+    var rows = candidates.map(function (s) {
+      var p = null;
+      s.points.forEach(function (q) { if (q.ts === ts) { p = q; } });
+      if (!p) { return null; }
+      var v = fieldValue(p, field);
+      if (share) { v = shareTotal > 0 ? v / shareTotal * 100 : 0; }
+      // With one process pinned, zero is the answer rather than a reason to
+      // say nothing was recorded.
+      if (v <= 0 && !PINNED) { return null; }
+      return {n: s.exe, v: v, m: field === "cpu_avg" ? p.cpu_max : null,
+              c: colourOf(colourIndexOf(s), s.is_other)};
+    }).filter(Boolean).sort(function (a, b) { return b.v - a.v; });
+    var html = "<h4>" + esc(fmtFull(ts)) +
+      (coverageAt(ts) < COVERED ? " &middot; mostly asleep" : "") +
+      (PINNED ? " &middot; " + esc(PINNED) + " only" : "") + "</h4>";
+    if (rows.length) {
+      html += "<table>" + rows.map(function (o) {
+        return '<tr><td><i style="background:' + o.c + '"></i>' + esc(o.n) +
+          "</td><td>" + esc(fmt(o.v)) +
+          (o.m && o.m > o.v + 0.5
+            ? ' <span style="color:' + css("--ink3") + '">peak ' +
+              o.m.toFixed(0) + "%</span>" : "") + "</td></tr>";
+      }).join("") +
+        // Not on the share charts: those are already normalised, so their
+        // total is 100% by construction and says nothing. Not when only some
+        // processes are on screen either -- a sum of what is charted read as
+        // a sum of what ran would be worse than no number at all, so it says
+        // which it is.
+        (share ? "" :
+          '<tr class="tot"><td>' +
+          (SHOW_SYSTEM ? "Total" : "All applications") + "</td><td>" +
+          esc(fmt(bucketTotal)) + "</td></tr>") +
+        "</table>";
+    } else {
+      html += '<div style="color:' + css("--ink3") + '">' +
+        (PINNED ? "no sample for " + esc(PINNED) + " at this moment"
+                : "nothing recorded") + "</div>";
+    }
+    tip.innerHTML = html;
+    placeTip(tip, e);
+  });
+  hit.addEventListener("mouseleave", function () {
+    document.getElementById("tip").style.opacity = "0";
+    cross.setAttribute("opacity", "0");
+  });
+  hit.addEventListener("click", function (e) {
+    // A drag that zoomed, and the first click of a double-click, both arrive
+    // here as ordinary clicks. Opening the detail panel for either would mean
+    // a panel appearing every time you changed the range.
+    if (suppressClick) { suppressClick = false; return; }
+    var ts = DATA.times[indexFromEvent(e)];
+    clearTimeout(detailTimer);
+    detailTimer = setTimeout(function () { showDetail(ts); }, 220);
+  });
+
+};
+
+var wireSimple = function (elId, key, unit, scale) {
+  var root = document.getElementById(elId);
+  var hit = root.querySelector(".hit"), cross = root.querySelector(".cross");
+  if (!hit) { return; }
+  var tip = document.getElementById("tip");
+  var byTs = {};
+  DATA.system.forEach(function (p) { byTs[p.ts] = p[key] * (scale || 1); });
+  hit.addEventListener("mousemove", function (e) {
+    var i = indexFromEvent(e), ts = DATA.times[i];
+    var x = xAt(i, DATA.times.length);
+    cross.setAttribute("x1", x);
+    cross.setAttribute("x2", x);
+    cross.setAttribute("opacity", "0.75");
+    var v = byTs[ts];
+    tip.innerHTML = "<h4>" + esc(fmtFull(ts)) + "</h4>" +
+      (v === undefined
+        ? '<div style="color:' + css("--ink3") + '">nothing recorded</div>'
+        : "<table><tr><td>" + esc(root.parentNode.querySelector("h2").textContent) +
+          "</td><td>" + (v >= 10 ? v.toFixed(0) : v.toFixed(2)) + unit +
+          "</td></tr></table>");
+    placeTip(tip, e);
+  });
+  hit.addEventListener("mouseleave", function () {
+    document.getElementById("tip").style.opacity = "0";
+    cross.setAttribute("opacity", "0");
+  });
+};
+
+var showDetail = function (ts) {
+  var el = document.getElementById("detail");
+  el.innerHTML = '<div class="msg">Loading&hellip;</div>';
+  fetch("/api/bucket?tier=" + encodeURIComponent(DATA.tier) + "&ts=" + ts)
+    .then(function (r) { return r.json(); })
+    .then(function (rows) {
+      if (!rows.length) {
+        el.innerHTML = '<div class="detailhead"><b>Nothing recorded at ' +
+          esc(fmtFull(ts)) + "</b>" +
+          '<button id="detailclose" title="Close">Close</button></div>';
+        on("detailclose", "click", function () { el.innerHTML = ""; });
+        return;
+      }
+      if (PINNED) {
+        rows = rows.filter(function (r) { return r.exe === PINNED; });
+      }
+      el.innerHTML = '<div class="detailhead"><b>' +
+        (PINNED ? esc(PINNED) + " at " : "Everything running at ") +
+        esc(fmtFull(ts)) + "</b>" +
+        '<button id="detailclose" title="Close">Close</button></div>' +
+        "<table><tr><th>" + esc(fmtFull(ts)) +
+        '</th><th class="num">avg</th><th class="num">peak</th>' +
+        '<th class="num">at</th><th class="num">memory</th>' +
+        '<th class="num">procs</th></tr>' +
+        rows.map(function (r) {
+          return "<tr><td>" + esc(r.exe) +
+            (r.cmdline && r.cmdline !== r.exe
+              ? '<span class="cmd">' + esc(r.cmdline) + "</span>"
+              : "") +
+            '</td><td class="num">' + r.cpu_avg.toFixed(1) + "%</td>" +
+            '<td class="num">' + r.cpu_max.toFixed(1) + "%</td>" +
+            '<td class="num">' + esc(fmtClock(r.cpu_max_ts)) + "</td>" +
+            '<td class="num">' + esc(fmtBytes(r.rss_kb)) + "</td>" +
+            '<td class="num">' + r.nproc + "</td></tr>";
+        }).join("") + "</table>";
+      on("detailclose", "click", function () { el.innerHTML = ""; });
+    })
+    .catch(function () {
+      el.innerHTML = '<div class="msg">Could not load that bucket.</div>';
+    });
+};
+
+// Byte counters are totals for a bucket, so a rate needs the bucket's width.
+var TIER_SECONDS = {raw: 30, fine: 300, coarse: 3600, archive: 21600};
+var bucketSeconds = function () { return TIER_SECONDS[DATA.tier] || 30; };
+var perSecond = function (v) { return v / bucketSeconds(); };
+var fmtRate = function (bytes) { return fmtBytes(perSecond(bytes) / 1024) + "/s"; };
+
+var render = function () {
+  COLOUR_RANK = null;   // the series list may have changed since last time
+  document.getElementById("tiername").textContent = DATA.tier + " resolution";
+  document.getElementById("cpusub").textContent =
+    "Stacked from each process's average over the interval. Percentages pass 100 " +
+    "because one multithreaded process can occupy several cores at once. " +
+    "Click any point for everything running at that moment.";
+  var ch = SETTINGS.height;
+  drawStacked("cpu", "cpuleg", "cpu_avg", "%",
+    function (v) { return v.toFixed(0) + "%"; }, 340);
+  drawStacked("mem", "memleg", "rss_avg", "", fmtBytes, ch);
+  drawStacked("energy", "energyleg", "energy", "%",
+    function (v) { return v.toFixed(1) + "%"; }, ch, true);
+  drawStacked("net", "netleg", "net", "", fmtRate, ch);
+  drawStacked("disk", "diskleg", "disk", "", fmtRate, ch);
+  drawSimple("busy", "cpu_busy", "--s1", "%");
+  drawSimple("load", "load1", "--s7", "");
+  drawSimple("swap", "swap_used_kb", "--s5", "M", 1 / 1024);
+  drawSimple("free", "disk_free_kb", "--s3", "G", 1 / 1048576);
+  renderSummary();
+  // A redraw builds fresh elements with no transform on them. If a pan is
+  // still in flight -- the live refresh can land mid-gesture -- the new
+  // charts have to be put where the old ones were, or the plot jumps back
+  // under the reader's fingers.
+  shiftGroups = null;   // the groups just built are not the ones cached
+  if (PAN_SECONDS) { applyShift(); }
+};
+
+var nowSeconds = function () { return Math.floor(Date.now() / 1000); };
+
+var setWindow = function (end, span) {
+  var now = nowSeconds();
+  if (!isFinite(end) || !isFinite(span)) { return; }   // never a valid window
+  // Panning divides a wheel delta by a pixel width, so it produces fractional
+  // seconds. Timestamps are whole seconds everywhere else -- the sampler
+  // writes integers -- and a fraction in the query string is simply not a
+  // time the server can parse.
+  end = Math.round(end);
+  span = Math.round(span);
+  RANGE = Math.max(MIN_SPAN, Math.min(MAX_SPAN, span));
+  // Within a fiftieth of the span of the present counts as the present.
+  END = (end >= now - RANGE / 50) ? null : Math.max(RANGE, end);
+  syncRangeSelect();
+};
+
+/* The select is the only readout of where you are. Zooming lands on spans it
+   has no option for, so it shows the closest rather than a value that is no
+   longer true. */
+var syncRangeSelect = function () {
+  var select = document.getElementById("range");
+  if (select) {
+    var best = null;
+    Array.prototype.forEach.call(select.options, function (option) {
+      var diff = Math.abs(Math.log(parseInt(option.value, 10) / RANGE));
+      if (best === null || diff < best.diff) { best = {diff: diff, v: option.value}; }
+    });
+    if (best) { select.value = best.v; }
+  }
+};
+
+var load = function () {
+  var end = END === null ? nowSeconds() : END;
+  // Self-healing rather than merely defensive: a poisoned window would
+  // otherwise be re-sent by the retry on every failure, forever, and only a
+  // manual reload would clear it.
+  if (!isFinite(end) || !isFinite(RANGE) || RANGE <= 0) {
+    END = null;
+    RANGE = SETTINGS.range;
+    end = nowSeconds();
+    syncRangeSelect();
+  }
+  // Scope is decided server-side so ranking happens inside it. Asking for
+  // the top twelve processes and then dropping the non-applications leaves
+  // nothing on a machine whose heaviest consumers are Spotlight and media
+  // analysis -- which is most machines, over a long enough window.
+  fetch("/api/series?start=" + (end - RANGE) + "&end=" + end +
+        "&limit=" + SETTINGS.limit +
+        "&scope=" + (SHOW_SYSTEM ? "all" : "apps"))
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      var seen = {};
+      d.series.forEach(function (s) {
+        s.points.forEach(function (p) { seen[p.ts] = 1; });
+      });
+      d.system.forEach(function (p) { seen[p.ts] = 1; });
+      d.times = Object.keys(seen).map(Number).sort(function (a, b) { return a - b; });
+      DATA = d;
+      banner("");
+      clearTimeout(loadRetry);
+      if (!d.times.length) {
+        // Returning here used to skip render() -- so every chart but this one
+        // kept the drawing from the previous window, still translated by the
+        // pan that brought us here. Eight charts silently showing another
+        // moment in time, with nothing on screen saying so.
+        PAN_SECONDS = 0;
+        shiftGroups = null;
+        applyShift();
+        CHARTS.forEach(function (c) {
+          var el = document.getElementById(c.id);
+          if (el) { el.innerHTML = '<div class="msg">Nothing recorded here.</div>'; }
+          var leg = document.getElementById(c.id + "leg");
+          if (leg) { leg.innerHTML = ""; }
+        });
+        return;
+      }
+      try {
+        render();
+      } catch (err) {
+        // A drawing fault is not a connectivity fault. Reporting every
+        // exception as "could not reach the recorder" sent me looking at the
+        // server for a bug that was in this file.
+        document.getElementById("cpu").innerHTML =
+          '<div class="msg">Could not draw the charts: ' + esc(err && err.message) +
+          "</div>";
+        throw err;
+      }
+    })
+    .catch(function (err) {
+      var el = document.getElementById("cpu");
+      if (el && el.innerHTML.indexOf("Could not draw") === -1) {
+        el.innerHTML = '<div class="msg">Could not reach the recorder. ' +
+          esc(err && err.message ? err.message : err) + "</div>";
+      }
+      loadFailed(err);
+    });
+};
+
+var banner = function (text) {
+  var el = document.getElementById("banner");
+  if (!el) { return; }
+  el.textContent = text || "";
+  el.hidden = !text;
+};
+
+var loadRetry = null;
+
+/* A fetch that never lands used to leave the page lying about where it was.
+   
+   Panning translates every chart and waits for the redraw the fetch was going
+   to bring. If it does not come, the plots stay translated -- drawn at one
+   time range while their axes claim another -- and only the CPU card said
+   anything, which is off the top of the screen once you have scrolled to the
+   memory chart. Worse, the poller only refetches while the view follows the
+   present, so after a pan nothing ever tried again: one dropped request and
+   the page was wrong until it was reloaded by hand. */
+var loadFailed = function (err) {
+  PAN_SECONDS = 0;
+  shiftGroups = null;
+  applyShift();               // put the charts back where their axes say
+  banner("Could not reach the recorder \u00b7 retrying\u2026");
+  clearTimeout(loadRetry);
+  loadRetry = setTimeout(load, 3000);
+};
+
+/* Beszel leads with a row of current values before any history. These are
+   read from the newest bucket rather than from a second live sampler, so the
+   summary and the charts can never disagree with each other. */
+var META = null;
+
+var bar = function (frac, colourVar) {
+  var pct = Math.max(0, Math.min(1, frac)) * 100;
+  return '<div class="bar"><i style="width:' + pct.toFixed(1) + "%;background:" +
+         css(colourVar) + '"></i></div>';
+};
+
+var newestSystem = function () {
+  return (DATA && DATA.system && DATA.system.length)
+    ? DATA.system[DATA.system.length - 1] : null;
+};
+
+var renderSummary = function () {
+  var el = document.getElementById("summary");
+  // Prefer the live reading; fall back to the newest stored bucket before the
+  // first live sample lands.
+  var sys = (NOW && !NOW.warming_up) ? NOW.system : newestSystem();
+  if (!META || !sys) { return; }
+  var cores = META.cores || 1;
+  var cpuFrac = (sys.cpu_busy / 100) / cores;
+  var memUsed = sys.mem_used_kb + sys.mem_comp_kb;
+  var memFrac = META.mem_total_kb ? memUsed / META.mem_total_kb : 0;
+  var diskUsed = (META.disk_total_kb || 0) - sys.disk_free_kb;
+  var diskFrac = META.disk_total_kb ? diskUsed / META.disk_total_kb : 0;
+
+  var netBytes = 0, diskBytes = 0, secs = 1;
+  if (NOW && !NOW.warming_up) {
+    // Already rates, per second.
+    NOW.groups.forEach(function (g) {
+      diskBytes += g.disk_read + g.disk_write;
+    });
+  } else {
+    secs = bucketSeconds();
+    (DATA && DATA.series ? DATA.series : []).forEach(function (series) {
+      series.points.forEach(function (p) {
+        if (p.ts !== sys.ts) { return; }
+        netBytes += (p.net_in || 0) + (p.net_out || 0);
+        diskBytes += (p.disk_read || 0) + (p.disk_write || 0);
+      });
+    });
+    diskBytes = diskBytes / secs;
+    netBytes = netBytes / secs;
+  }
+
+  /* CPU, memory and disk divide by something real: cores, installed memory,
+     volume size. Disk I/O and swap have no such ceiling -- the old code
+     invented one (50 MB/s, 2 GB), which made 1 MB/s an invisible stub and
+     pinned 5.5 GB of swap at "full" while the number beside it said 5.5 GB.
+     Both are now read against the largest value in the window on screen, and
+     the caption says so, because a bar with no stated denominator is a
+     picture of nothing. */
+  var peak = function (fn) {
+    var most = 0;
+    (DATA && DATA.system ? DATA.system : []).forEach(function (row) {
+      var v = fn(row);
+      if (isFinite(v) && v > most) { most = v; }
+    });
+    return most;
+  };
+  var swapPeak = Math.max(peak(function (r) { return r.swap_used_kb; }),
+                          sys.swap_used_kb);
+  var ioPeak = 0;
+  (DATA && DATA.series ? DATA.series : []).forEach(function (series) {
+    var byTs = {};
+    series.points.forEach(function (p) {
+      byTs[p.ts] = ((p.disk_read || 0) + (p.disk_write || 0));
+    });
+    Object.keys(byTs).forEach(function (t) {
+      if (byTs[t] > ioPeak) { ioPeak = byTs[t]; }
+    });
+  });
+  ioPeak = Math.max(ioPeak / bucketSeconds(), diskBytes);
+
+  var cards = [
+    {k: "CPU", v: (sys.cpu_busy / cores).toFixed(1), u: "%",
+     f: cpuFrac, c: "--s1", sub: cores + " cores, load " + sys.load1.toFixed(2)},
+    {k: "Memory", v: (memFrac * 100).toFixed(1), u: "%",
+     f: memFrac, c: "--s3",
+     sub: fmtBytes(memUsed) + " of " + fmtBytes(META.mem_total_kb || 0)},
+    {k: "Disk", v: (diskFrac * 100).toFixed(1), u: "%",
+     f: diskFrac, c: diskFrac > 0.9 ? "--s8" : "--s7",
+     sub: fmtBytes(sys.disk_free_kb) + " free"},
+    {k: "Disk I/O", v: fmtBytes(diskBytes / 1024).replace(/ /, ""), u: "/s",
+     f: ioPeak > 0 ? diskBytes / ioPeak : 0, c: "--s4",
+     sub: ioPeak > 0 ? "peak " + fmtBytes(ioPeak / 1024) + "/s in view"
+                     : "read + written"},
+    {k: "Swap", v: fmtBytes(sys.swap_used_kb).replace(/ /, ""), u: "",
+     f: swapPeak > 0 ? sys.swap_used_kb / swapPeak : 0, c: "--s5",
+     sub: sys.swap_used_kb > 0
+       ? "peak " + fmtBytes(swapPeak) + " in view" : "none"}
+  ];
+
+  // One horizontal strip rather than a row of cards: the value and its
+  // proportion sit on the same line, which is what makes it scannable at a
+  // glance instead of a wall of numbers.
+  el.innerHTML = cards.map(function (c) {
+    return '<div class="stat"><div class="k">' + esc(c.k) + "</div>" +
+      '<div class="row"><span class="v">' + esc(c.v) +
+      (c.u ? "<small>" + c.u + "</small>" : "") + "</span>" +
+      bar(c.f, c.c) + "</div>" +
+      '<div class="sub2">' + c.sub + "</div></div>";
+  }).join("");
+};
+
+/* Sequential encoding: one hue, light to dark. Never a rainbow -- intensity
+   here is magnitude, not identity, and a rainbow would imply categories. */
+var HEAT = ["#0d366b", "#184f95", "#256abf", "#3987e5", "#86b6ef"];
+var HEAT_LIGHT = ["#cde2fb", "#9ec5f4", "#5598e7", "#2a78d6", "#184f95"];
+
+var heatColour = function (pct, cores) {
+  var light = document.documentElement.getAttribute("data-theme") === "light" ||
+    (!document.documentElement.getAttribute("data-theme") &&
+     !matchMedia("(prefers-color-scheme: dark)").matches);
+  var ramp = light ? HEAT_LIGHT : HEAT;
+  var frac = Math.min(1, (pct / 100) / cores);
+  return ramp[Math.min(ramp.length - 1, Math.floor(frac * ramp.length))];
+};
+
+/* Hovering a name anywhere -- a legend entry or a row in the live table --
+   lights that process in every chart at once and dims the rest. The bands
+   carry the series name, so nothing has to be redrawn to do it. */
+/* Hovering previews a process; clicking pins it, so you can move the mouse
+   away and still read the chart. A pin survives until the same name is
+   clicked again, another is clicked, or Escape. Hover is ignored entirely
+   while something is pinned -- otherwise moving the pointer across the page
+   would silently undo the click. */
+var PINNED = null;
+
+var highlight = function (name) {
+  var charts = document.querySelectorAll("#history svg");
+  // Dimming is for previewing one band among many. Once a pin has reduced the
+  // chart to that band alone there is nothing to dim it against, and doing so
+  // would just render the survivor at 12% opacity.
+  var dim = !!name && !PINNED;
+  Array.prototype.forEach.call(charts, function (svg) {
+    svg.classList.toggle("dimmed", dim);
+    Array.prototype.forEach.call(svg.querySelectorAll(".band"), function (b) {
+      b.classList.toggle("lit", dim && b.dataset.series === name);
+    });
+  });
+  Array.prototype.forEach.call(
+    document.querySelectorAll("#livebody tr[data-series]"), function (tr) {
+      tr.classList.toggle("lit", !!name && tr.dataset.series === name);
+    });
+};
+
+/* Restyling for the current pin. Deliberately does NOT redraw: a redraw
+   rebuilds the legend and the table, which re-wire themselves, which restyle
+   again. Keeping the two apart is what stops that from being a cycle. */
+var applyPinStyle = function (name) {
+  highlight(name);
+  Array.prototype.forEach.call(
+    document.querySelectorAll("[data-series]"), function (el) {
+      el.classList.toggle("pinned", !!name && el.dataset.series === name);
+    });
+};
+
+/* Changing the pin. Only reached from a click, so the redraw happens once. */
+var setPinned = function (name) {
+  if (PINNED === name) { applyPinStyle(name); return; }
+  PINNED = name;
+  if (DATA) { render(); }   // the chart itself changes, not just its opacity
+  applyPinStyle(name);
+};
+
+var wireHighlight = function (root) {
+  Array.prototype.forEach.call(
+    root.querySelectorAll("[data-series]"), function (el) {
+      el.addEventListener("mouseenter", function () {
+        if (!PINNED) { highlight(el.dataset.series); }
+      });
+      el.addEventListener("mouseleave", function () {
+        if (!PINNED) { highlight(null); }
+      });
+      el.addEventListener("click", function (e) {
+        // Let the Quit and Force buttons act without also pinning the row.
+        if (e.target.closest && e.target.closest("button")) { return; }
+        setPinned(PINNED === el.dataset.series ? null : el.dataset.series);
+      });
+    });
+  // A pin has to survive a redraw, or the two-second live refresh would clear
+  // it out from under the reader. Restyle only -- render() is what called us.
+  if (PINNED) { applyPinStyle(PINNED); }
+};
+
+var loadActivity = function () {
+  fetch("/api/activity?days=30").then(function (r) { return r.json(); })
+    .then(function (hours) {
+      var el = document.getElementById("heat");
+      if (!hours.length) {
+        el.innerHTML = '<div class="msg">Nothing recorded yet.</div>';
+        return;
+      }
+      var cores = (META && META.cores) || 1;
+      var byDay = {};
+      hours.forEach(function (h) {
+        var d = new Date(h.ts * 1000);
+        var key = d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate();
+        (byDay[key] = byDay[key] || {label: d, hours: {}}).hours[d.getHours()] = h;
+      });
+      var days = Object.keys(byDay).sort(function (a, b) {
+        return byDay[a].label - byDay[b].label;
+      });
+      var rows = "";
+      for (var hr = 0; hr < 24; hr++) {
+        rows += "<div>" + (hr % 3 === 0 ? (hr < 10 ? "0" + hr : hr) + ":00" : "") +
+                "</div>";
+      }
+      var cols = days.map(function (key) {
+        var day = byDay[key];
+        var cells = "";
+        for (var hr = 0; hr < 24; hr++) {
+          var h = day.hours[hr];
+          if (!h || h.coverage < 0.25) {
+            cells += '<div class="cell none" title="' +
+              esc(day.label.toDateString()) + " " + hr + ":00 -- not sampled\"></div>";
+          } else {
+            cells += '<div class="cell" style="background:' +
+              heatColour(h.cpu_avg, cores) + '" title="' +
+              esc(day.label.toDateString()) + " " + hr + ":00 -- " +
+              (h.cpu_avg / cores).toFixed(0) + "% average, " +
+              (h.cpu_max / cores).toFixed(0) + '% peak"></div>';
+          }
+        }
+        return '<div class="col"><div class="day">' +
+          day.label.toLocaleDateString([], {month: "short", day: "numeric"}) +
+          "</div>" + cells + "</div>";
+      }).join("");
+      el.innerHTML = '<div class="heat"><div class="hours">' + rows +
+        '</div><div class="cols">' + cols + "</div></div>" +
+        '<div class="heatfoot"><span>Quieter</span>' +
+        (document.documentElement.getAttribute("data-theme") === "light"
+          ? HEAT_LIGHT : HEAT).map(function (c) {
+          return '<span class="cell" style="background:' + c + '"></span>';
+        }).join("") + "<span>Busier</span></div>";
+    }).catch(function () {
+      document.getElementById("heat").innerHTML =
+        '<div class="msg">Could not load activity.</div>';
+    });
+};
+
+var loadMeta = function () {
+  fetch("/api/info").then(function (r) { return r.json(); }).then(function (m) {
+    META = m;
+    OLDEST = m.first_ts || OLDEST;
+    document.getElementById("host").textContent = m.hostname || "this Mac";
+    var age = m.last_tick ? Math.round(Date.now() / 1000 - m.last_tick) : null;
+    var bits = [];
+    if (m.os_version) { bits.push("<div>macOS " + esc(m.os_version) + "</div>"); }
+    if (m.chip) { bits.push("<div>" + esc(m.chip) + " &middot; " + m.cores + " cores</div>"); }
+    if (m.mem_total_kb) { bits.push("<div>" + esc(fmtBytes(m.mem_total_kb)) + " memory</div>"); }
+    if (m.boot_ts) {
+      var up = Math.floor((Date.now() / 1000 - m.boot_ts) / 86400);
+      bits.push("<div>up " + (up >= 1 ? up + " days" :
+        Math.floor((Date.now() / 1000 - m.boot_ts) / 3600) + " hours") + "</div>");
+    }
+    if (age !== null) {
+      bits.push("<div>last sample " + (age < 90 ? age + "s" :
+        Math.round(age / 60) + "m") + " ago</div>");
+    }
+    document.getElementById("strip").innerHTML = bits.join("");
+    renderSummary();
+    loadActivity();
+  }).catch(function () {});
+};
+loadMeta();
+
+/* Wire optional controls defensively. An earlier edit referenced an element
+   that had failed to be inserted, and the resulting TypeError stopped every
+   statement after it -- including the initial load -- so the whole page sat
+   on "Loading" with nothing in the console to suggest the cause. */
+var on = function (id, event, handler) {
+  var el = document.getElementById(id);
+  if (el) { el.addEventListener(event, handler); }
+};
+
+on("showsys", "click", function () {
+  SHOW_SYSTEM = !SHOW_SYSTEM;
+  document.getElementById("showsys")
+    .setAttribute("aria-pressed", SHOW_SYSTEM ? "true" : "false");
+  renderLive();
+  load();   // refetch: the server ranks within the scope, so this is not a filter
+});
+on("range", "change", function () {
+  var d = document.getElementById("detail");
+  if (d) { d.innerHTML = ""; }
+  setWindow(nowSeconds(), parseInt(document.getElementById("range").value, 10));
+  load();
+});
+
+/* Scrolling a chart sideways moves through time.
+   
+   The drawn plot follows the gesture pixel for pixel, so the distance your
+   fingers travel is the distance the chart travels -- that is the only way to
+   judge how far back you have gone while going there. What it cannot do is
+   invent data: the shifted plot is the data already in hand, moved, and the
+   window is refetched once the gesture settles. So the motion is honest about
+   position and the fetch is honest about content.
+   
+   PAN_SECONDS is the part of the pan that has been shown but not yet fetched.
+   Every chart shifts together, because they share one window. */
+var PAN_SECONDS = 0;
+var OLDEST = null;          // the first sample ever recorded, from /api/info
+var shiftGroups = null;     // refreshed by render; the DOM is rebuilt there
+var shiftFrame = null;
+
+var applyShift = function () {
+  // A trackpad delivers wheel events faster than the screen refreshes, and
+  // writing the transform on each one means several layouts per frame that
+  // nobody ever sees. Coalescing to one write per frame is the difference
+  // between a pan that stutters and one that does not.
+  if (shiftFrame) { return; }
+  shiftFrame = requestAnimationFrame(function () {
+    shiftFrame = null;
+    var dx = -PAN_SECONDS / RANGE * (W - PL - PR);
+    if (!shiftGroups) { shiftGroups = document.querySelectorAll("g.shift"); }
+    // style.transform rather than the SVG attribute: the attribute is part of
+    // the document and invalidates it, the style property is a compositor
+    // hint and pairs with will-change.
+    var value = dx ? "translate(" + dx + "px,0)" : "";
+    Array.prototype.forEach.call(shiftGroups, function (g) {
+      if (g.style) { g.style.transform = value; }
+      else { g.setAttribute("transform", dx ? "translate(" + dx + ",0)" : ""); }
+    });
+  });
+};
+
+var commitPan = function () {
+  panning = false;
+  if (!PAN_SECONDS) { return; }
+  var end = (END === null ? nowSeconds() : END) + PAN_SECONDS;
+  // Left in place, not zeroed and re-applied: the plot is already drawn where
+  // the gesture left it, and the redraw lands on the same instant. Snapping
+  // back to zero and forward again on arrival would be a visible flinch.
+  PAN_SECONDS = 0;
+  setWindow(end, RANGE);
+  load();
+};
+
+var panning = false;
+
+var wireScroll = function (root) {
+  root.addEventListener("wheel", function (e) {
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) { return; }  // page scrolls
+    e.preventDefault();
+    var box = root.getBoundingClientRect();
+    // A chart with no width has not been laid out yet -- a hidden card, or
+    // the menu bar panel before it opens. Dividing by that width gives NaN,
+    // and NaN compares false against every clamp below, so it would sail
+    // through both of them and into the URL.
+    if (!box.width) { return; }
+    PAN_SECONDS += e.deltaX / box.width * RANGE;
+    // The chart stops at both edges of what exists rather than sliding into
+    // a window that can only be empty: there is nothing ahead of now, and
+    // nothing before the first sample ever recorded.
+    var end = END === null ? nowSeconds() : END;
+    var ahead = nowSeconds() - end;
+    if (PAN_SECONDS > ahead) { PAN_SECONDS = ahead; }
+    if (OLDEST) {
+      var behind = end - RANGE - OLDEST;
+      if (PAN_SECONDS < -behind) { PAN_SECONDS = Math.min(0, -behind); }
+    }
+    applyShift();
+    if (!panning) { panning = true; hideCrosshairs(); }
+    clearTimeout(panTimer);
+    panTimer = setTimeout(commitPan, 140);
+  }, {passive: false});
+};
+
+var hideCrosshairs = function () {
+  var tip = document.getElementById("tip");
+  if (tip) { tip.style.opacity = "0"; }
+  Array.prototype.forEach.call(
+    document.querySelectorAll("line.cross"), function (line) {
+      line.setAttribute("opacity", "0");
+    });
+};
+
+/* Drag across a chart to look at that stretch; double-click to come back to
+   twenty-four hours. */
+/* Bound once. It used to be registered inside the per-chart wiring, which
+   runs on every redraw, so the page accumulated a fresh Escape handler for
+   each chart every fifteen seconds. */
+document.addEventListener("keydown", function (e) {
+  if (e.key !== "Escape") { return; }
+  if (PINNED) { setPinned(null); return; }   // release the pin first
+  var d = document.getElementById("detail");
+  if (d) { d.innerHTML = ""; }
+});
+
+var resetSpan = function () { return SETTINGS.range; };
+var suppressClick = false;
+// A double-click's first click would otherwise open the detail panel a moment
+// before the second click resets the range.
+var detailTimer = null;
+
+var wireBrush = function (root) {
+  var hit = root.querySelector(".hit");
+  if (!hit) { return; }
+  var svg = hit.ownerSVGElement;
+  var band = null, fromX = null;
+
+  var clamp = function (x) { return Math.max(PL, Math.min(W - PR, x)); };
+
+  var draw = function (x) {
+    band.setAttribute("x", Math.min(fromX, x));
+    band.setAttribute("width", Math.abs(x - fromX));
+  };
+
+  var move = function (e) { if (band) { draw(clamp(xInSvg(svg, e.clientX))); } };
+
+  var up = function (e) {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up);
+    if (!band) { return; }
+    var toX = clamp(xInSvg(svg, e.clientX));
+    band.parentNode.removeChild(band);
+    band = null;
+    // Under a few pixels this was a click, not a drag, and the click handler
+    // should be allowed to open the detail panel.
+    if (Math.abs(toX - fromX) < 5) { return; }
+    suppressClick = true;
+    var a = DATA.times[indexFromX(Math.min(fromX, toX))];
+    var b = DATA.times[indexFromX(Math.max(fromX, toX))];
+    if (a === undefined || b === undefined) { return; }
+    // A selection narrower than the data goes is widened rather than refused:
+    // dragging and having nothing happen reads as a broken control.
+    setWindow(b, b - a);
+    load();
+  };
+
+  hit.addEventListener("mousedown", function (e) {
+    if (e.button !== 0 || !DATA || !DATA.times.length) { return; }
+    e.preventDefault();
+    suppressClick = false;
+    fromX = clamp(xInSvg(svg, e.clientX));
+    band = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    band.setAttribute("class", "brush");
+    band.setAttribute("y", hit.getAttribute("y"));
+    band.setAttribute("height", hit.getAttribute("height"));
+    draw(fromX);
+    svg.appendChild(band);
+    // Tracked on the document so the drag survives leaving the chart.
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
+  });
+
+  hit.addEventListener("dblclick", function (e) {
+    e.preventDefault();
+    clearTimeout(detailTimer);
+    suppressClick = true;
+    END = null;
+    setWindow(nowSeconds(), resetSpan());
+    load();
+  });
+};
+on("theme", "click", function () {
+  var now = document.documentElement.getAttribute("data-theme");
+  var dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  var next = now === "dark" ? "light" : (now === "light" ? "dark" : (dark ? "light" : "dark"));
+  document.documentElement.setAttribute("data-theme", next);
+  CSS_CACHE = {};   // every custom property just changed
+  if (DATA) { render(); }
+});
+
+// Following the system theme means the properties can change without anything
+// on the page being clicked. Caching them makes that a correctness concern,
+// not just a repaint one.
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
+  if (document.documentElement.getAttribute("data-theme")) { return; }
+  CSS_CACHE = {};
+  if (DATA) { render(); }
+});
+
+/* ---- settings ----------------------------------------------------------
+   Kept in localStorage rather than on the server: they describe how one
+   person likes to look at the data, not anything about the machine, and the
+   recorder must not need a running dashboard to work. */
+var CHARTS = [
+  {id: "cpu", name: "CPU"}, {id: "mem", name: "Memory"},
+  {id: "energy", name: "Energy"}, {id: "net", name: "Network"},
+  {id: "disk", name: "Disk"}, {id: "busy", name: "System CPU"},
+  {id: "load", name: "Load"}, {id: "swap", name: "Swap"},
+  {id: "free", name: "Free disk"}, {id: "activity", name: "Activity"}
+];
+var DEFAULTS = {range: 86400, limit: 12, height: 250, live: 2000, hidden: []};
+var SETTINGS = (function () {
+  var out = {}, key;
+  for (key in DEFAULTS) {
+    if (Object.prototype.hasOwnProperty.call(DEFAULTS, key)) {
+      out[key] = DEFAULTS[key];
+    }
+  }
+  try {
+    var saved = JSON.parse(localStorage.getItem("procwatch.settings") || "{}");
+    for (key in saved) {
+      // Only keys we know: a stale or hand-edited store should not be able to
+      // introduce fields the rest of the code does not expect.
+      if (Object.prototype.hasOwnProperty.call(DEFAULTS, key)) {
+        out[key] = saved[key];
+      }
+    }
+  } catch (err) { /* unreadable store: the defaults are already in place */ }
+  return out;
+})();
+
+var saveSettings = function () {
+  try {
+    localStorage.setItem("procwatch.settings", JSON.stringify(SETTINGS));
+  } catch (err) { /* private browsing; the session still works */ }
+};
+
+var isHidden = function (id) { return SETTINGS.hidden.indexOf(id) !== -1; };
+
+var applyChartVisibility = function () {
+  Array.prototype.forEach.call(
+    document.querySelectorAll("[data-chart]"), function (card) {
+      card.hidden = isHidden(card.dataset.chart);
+    });
+};
+
+var openSettings = function (open) {
+  var sheet = document.getElementById("settings");
+  if (!sheet) { return; }
+  sheet.hidden = !open;
+  if (!open) { return; }
+  document.getElementById("setrange").value = String(SETTINGS.range);
+  document.getElementById("setlimit").value = String(SETTINGS.limit);
+  document.getElementById("setheight").value = String(SETTINGS.height);
+  document.getElementById("setlive").value = String(SETTINGS.live);
+  document.getElementById("setcharts").innerHTML = CHARTS.map(function (c) {
+    return '<label><input type="checkbox" data-chart-toggle="' + c.id + '"' +
+      (isHidden(c.id) ? "" : " checked") + ">" + esc(c.name) + "</label>";
+  }).join("");
+  var size = document.getElementById("dbsize");
+  if (size && META && META.db_bytes) {
+    size.textContent = fmtBytes(META.db_bytes / 1024) + " on disk";
+  }
+};
+
+on("gear", "click", function () { openSettings(true); });
+on("sheetclose", "click", function () { openSettings(false); });
+on("settings", "click", function (e) {
+  // Clicking the dimmed area outside the panel closes it.
+  if (e.target && e.target.id === "settings") { openSettings(false); }
+});
+document.addEventListener("keydown", function (e) {
+  var sheet = document.getElementById("settings");
+  if (e.key === "Escape" && sheet && !sheet.hidden) {
+    e.stopPropagation();
+    openSettings(false);
+  }
+}, true);
+
+on("setrange", "change", function (e) {
+  SETTINGS.range = parseInt(e.target.value, 10);
+  saveSettings();
+  END = null;
+  setWindow(nowSeconds(), SETTINGS.range);
+  load();
+});
+on("setlimit", "change", function (e) {
+  SETTINGS.limit = parseInt(e.target.value, 10);
+  saveSettings();
+  load();          // the cut happens server-side, so this is a refetch
+});
+on("setheight", "change", function (e) {
+  SETTINGS.height = parseInt(e.target.value, 10);
+  saveSettings();
+  if (DATA) { render(); }
+});
+on("setlive", "change", function (e) {
+  SETTINGS.live = parseInt(e.target.value, 10);
+  saveSettings();
+  restartLivePoll();
+});
+on("setcharts", "change", function (e) {
+  var id = e.target && e.target.dataset ? e.target.dataset.chartToggle : null;
+  if (!id) { return; }
+  var at = SETTINGS.hidden.indexOf(id);
+  if (e.target.checked && at !== -1) { SETTINGS.hidden.splice(at, 1); }
+  if (!e.target.checked && at === -1) { SETTINGS.hidden.push(id); }
+  saveSettings();
+  applyChartVisibility();
+});
+on("setreset", "click", function () {
+  SETTINGS = JSON.parse(JSON.stringify(DEFAULTS));
+  saveSettings();
+  applyChartVisibility();
+  openSettings(true);
+  END = null;
+  setWindow(nowSeconds(), SETTINGS.range);
+  load();
+  restartLivePoll();
+});
+
+/* ---- view switching, live process table, ports, signalling ---- */
+var TOKEN = (document.querySelector(
+  'meta[name="procwatch-token"]') || {}).content || "";
+
+var toast = function (text, bad) {
+  var el = document.getElementById("toast");
+  el.textContent = text;
+  el.style.borderColor = bad ? "#b4241f" : css("--line");
+  el.style.opacity = "1";
+  clearTimeout(el._t);
+  el._t = setTimeout(function () { el.style.opacity = "0"; }, 3200);
+};
+
+var kill = function (pid, name, force) {
+  var what = force ? "Force quit" : "Quit";
+  if (!window.confirm(what + " " + name + " (pid " + pid + ")?" +
+      (force ? "\nUnsaved work will be lost." : ""))) { return; }
+  fetch("/api/kill", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      // Neither of these can be set on a cross-origin request without a
+      // preflight, and the server refuses preflight outright.
+      "X-Procwatch": "1",
+      "X-Procwatch-Token": TOKEN
+    },
+    body: JSON.stringify({pid: pid, signal: force ? "KILL" : "TERM"})
+  }).then(function (r) { return r.json(); }).then(function (res) {
+    if (res.ok) {
+      toast("Sent " + res.signal + " to " + (res.comm || name));
+      setTimeout(function () { loadLive(); loadPorts(); }, 700);
+    } else {
+      toast(res.error || "could not signal that process", true);
+    }
+  }).catch(function () { toast("could not reach the recorder", true); });
+};
+
+var LIVE = [];
+var SORT = {key: "cpu", dir: -1};
+/* Most of what runs on a Mac is macOS. Hiding it by default is what makes
+   the whole page answer "what am I running" rather than "what exists" -- it
+   applies to the charts as well as the table, or the two would disagree
+   about what is on screen. */
+var SHOW_SYSTEM = false;
+
+/* With the switch off the page shows APPLICATIONS: things in a .app bundle,
+   with an app's helpers folded into the app itself, so Arc is one row rather
+   than Arc plus thirty-nine renderers. Daemons, CLI tools and compilers have
+   no bundle and are not applications, so they are out. With it on, every
+   process group is shown exactly as recorded. */
+var visibleSeries = function () {
+  if (!DATA || !DATA.series) { return []; }
+  /* A pinned process is drawn alone, from the baseline, with the axis scaled
+     to its own values. Leaving it in the stack keeps its band floating at
+     whatever height the processes below happen to occupy, and keeps the axis
+     sized for a total it is a small part of -- so the one series you asked to
+     look at is the one you can read least well. */
+  var all = universeSeries();
+  if (PINNED) {
+    var only = all.filter(function (s) { return s.exe === PINNED; });
+    if (only.length) { return only; }
+  }
+  return all;
+};
+
+/* Every series that exists, whether or not a pin is narrowing the view.
+   The legend, the colour assignment and the share denominators all have to
+   ignore the pin: the legend is how you unpin, colour must follow the entity
+   rather than its position in a filtered array, and a share of a one-series
+   subset would read 100% for whatever you pinned. */
+var UNIVERSE = null;
+var universeSeries = function () {
+  if (!DATA || !DATA.series) { return []; }
+  if (SHOW_SYSTEM) { return DATA.series; }
+  /* Grouping 40 series x 2880 points costs ~40 ms, and this is called from
+     inside per-row loops on the hover path -- once per mousemove was already
+     too much, once per row was unusable. Cached against its own inputs rather
+     than invalidated by hand: a caller that forgets cannot get a stale list,
+     because the key is the data it was built from. */
+  if (!UNIVERSE || UNIVERSE.data !== DATA) {
+    UNIVERSE = {data: DATA, list: groupedByApp()};
+  }
+  return UNIVERSE.list;
+};
+
+/* Colour follows the entity. The grouped view synthesises series that are not
+   in DATA.series, so ranking against the raw list left every app falling back
+   to its array position -- which agreed with the legend only because both
+   walked the same array. Ranking the universe makes that agreement real. */
+var colourIndexOf = function (s) {
+  var key = s.exe + "\u0000" + (s.cmdline || "");
+  if (!COLOUR_RANK || COLOUR_RANK.data !== DATA || COLOUR_RANK.sys !== SHOW_SYSTEM) {
+    COLOUR_RANK = {data: DATA, sys: SHOW_SYSTEM};
+    universeSeries().forEach(function (o, i) {
+      COLOUR_RANK["k" + o.exe + "\u0000" + (o.cmdline || "")] = i;
+    });
+  }
+  var i = COLOUR_RANK["k" + key];
+  return i === undefined ? 0 : i;
+};
+
+var groupedByApp = function () {
+
+  var byApp = {}, out = [];
+  DATA.series.forEach(function (s) {
+    if (s.is_other) { out.push(s); return; }
+    if (!s.app) { return; }               // not part of any application
+    var merged = byApp[s.app];
+    if (!merged) {
+      merged = byApp[s.app] = {exe: s.app, cmdline: s.cmdline, app: s.app,
+                               is_other: false, is_system: s.is_system,
+                               points: []};
+      out.push(merged);
+    }
+    // Fold this identity's points into the app's, matching on bucket.
+    var index = {};
+    merged.points.forEach(function (p) { index[p.ts] = p; });
+    s.points.forEach(function (p) {
+      var into = index[p.ts];
+      if (!into) {
+        into = {ts: p.ts, cpu_avg: 0, cpu_max: 0, cpu_max_ts: p.ts,
+                rss_avg: 0, rss_max: 0, nproc: 0, net_in: 0, net_out: 0,
+                disk_read: 0, disk_write: 0, energy: 0, stuck: 0};
+        index[p.ts] = into;
+        merged.points.push(into);
+      }
+      // Averages add across processes of one app; maxima take the larger,
+      // carrying the timestamp of whichever peak won.
+      into.cpu_avg += p.cpu_avg;
+      if (p.cpu_max > into.cpu_max) {
+        into.cpu_max = p.cpu_max;
+        into.cpu_max_ts = p.cpu_max_ts;
+      }
+      into.rss_avg += p.rss_avg;
+      into.rss_max = Math.max(into.rss_max, p.rss_max);
+      into.nproc += p.nproc;
+      into.net_in += p.net_in; into.net_out += p.net_out;
+      into.disk_read += p.disk_read; into.disk_write += p.disk_write;
+      into.energy += p.energy;
+      into.stuck = Math.max(into.stuck, p.stuck);
+    });
+    merged.points.sort(function (a, b) { return a.ts - b.ts; });
+  });
+  return out;
+};
+
+var visibleSeriesOuter = visibleSeries;
+
+var LIVE_COLS = [
+  {k: "exe",   label: "Application", num: false},
+  {k: "cpu",   label: "CPU",     num: true, f: function (e) { return e.cpu.toFixed(1) + "%"; }},
+  {k: "rss_kb", label: "Memory", num: true, f: function (e) { return fmtBytes(e.rss_kb); }},
+  {k: "disk",  label: "Disk",    num: true,
+   v: function (e) { return e.disk_read + e.disk_write; },
+   f: function (e) { return fmtBytes((e.disk_read + e.disk_write) / 1024); }},
+  {k: "net",   label: "Network", num: true,
+   v: function (e) { return e.net_in + e.net_out; },
+   f: function (e) { return fmtBytes((e.net_in + e.net_out) / 1024); }},
+  {k: "energy", label: "Energy", num: true,
+   f: function (e) { return e.energy ? (e.energy / 1e6).toFixed(0) + "M" : "\u2014"; }},
+  {k: "nproc", label: "Procs",   num: true, f: function (e) { return e.nproc; }},
+  {k: "ports", label: "Ports",   num: false,
+   v: function (e) { return e.ports.length; },
+   f: function (e) {
+     return e.ports.length
+       ? e.ports.map(function (p) { return '<span class="pill">' + p + "</span>"; }).join("")
+       : '<span style="color:var(--ink3)">\u2014</span>';
+   }}
+];
+
+var sortValue = function (col, e) {
+  if (col.v) { return col.v(e); }
+  return col.num ? e[col.k] : String(e[col.k] || "").toLowerCase();
+};
+
+var renderLive = function () {
+  var el = document.getElementById("livebody");
+  if (!LIVE.length) {
+    el.innerHTML = '<div class="msg">Nothing to show.</div>';
+    return;
+  }
+  var col = LIVE_COLS.filter(function (c) { return c.k === SORT.key; })[0] || LIVE_COLS[1];
+  var visible, hidden;
+  if (SHOW_SYSTEM) {
+    visible = LIVE;
+    hidden = 0;
+  } else {
+    // Same rule as the charts: applications only, helpers folded in.
+    var byApp = {};
+    LIVE.forEach(function (e) {
+      if (!e.app) { return; }
+      var m = byApp[e.app];
+      if (!m) {
+        m = byApp[e.app] = {exe: e.app, args: "", app: e.app, cpu: 0, rss_kb: 0,
+                            nproc: 0, ports: [], disk_read: 0, disk_write: 0,
+                            net_in: 0, net_out: 0, energy: 0, waiting: 0,
+                            lead_pid: e.lead_pid, is_system: e.is_system};
+      }
+      m.cpu += e.cpu; m.rss_kb += e.rss_kb; m.nproc += e.nproc;
+      m.disk_read += e.disk_read; m.disk_write += e.disk_write;
+      m.net_in += e.net_in; m.net_out += e.net_out;
+      m.energy += e.energy; m.waiting += e.waiting;
+      m.ports = m.ports.concat(e.ports);
+      m.lead_pid = Math.min(m.lead_pid, e.lead_pid);
+    });
+    visible = Object.keys(byApp).map(function (k) {
+      byApp[k].ports = byApp[k].ports.filter(function (p, i, a) {
+        return a.indexOf(p) === i;
+      }).sort(function (a, b) { return a - b; });
+      return byApp[k];
+    });
+    hidden = LIVE.length - visible.length;
+  }
+  var rows = visible.slice().sort(function (a, b) {
+    var av = sortValue(col, a), bv = sortValue(col, b);
+    if (av < bv) { return -SORT.dir; }
+    if (av > bv) { return SORT.dir; }
+    return 0;
+  }).slice(0, 60);
+
+  var head = LIVE_COLS.map(function (c) {
+    var on = c.k === SORT.key;
+    return '<th class="sortable' + (on ? " active" : "") + (c.num ? " num" : "") +
+      '" data-sort="' + c.k + '">' + esc(c.label) +
+      '<span class="arrow">' + (on ? (SORT.dir < 0 ? "\u2193" : "\u2191") : "\u2195") +
+      "</span></th>";
+  }).join("") + "<th></th>";
+
+  el.innerHTML = '<table class="rows"><tr>' + head + "</tr>" +
+    rows.map(function (e) {
+      var flag = e.waiting
+        ? ' <span class="warn" title="' + e.waiting +
+          ' process(es) in an uninterruptible wait -- often stuck I/O">' +
+          "\u26a0 waiting</span>"
+        : "";
+      return '<tr data-series="' + esc(e.exe) + '"><td><b>' + esc(e.exe) + "</b>" +
+        flag + (e.args ? '<span class="sub">' + esc(e.args) + "</span>" : "") +
+        "</td>" +
+        LIVE_COLS.slice(1).map(function (c) {
+          return '<td class="' + (c.num ? "num" : "") + '">' + c.f(e) + "</td>";
+        }).join("") +
+        '<td><div class="act">' +
+        '<button data-pid="' + e.lead_pid + '" data-name="' + esc(e.exe) + '">Quit</button>' +
+        '<button class="danger" data-pid="' + e.lead_pid + '" data-name="' +
+        esc(e.exe) + '" data-force="1">Force</button></div></td></tr>';
+    }).join("") + "</table>" +
+    (hidden > 0
+      ? '<div class="hiddennote">Showing ' + visible.length +
+        " applications. " + hidden +
+        " other process groups \u2014 daemons, helpers, command line tools \u2014" +
+        " are folded in or hidden.</div>"
+      : "");
+
+
+  Array.prototype.forEach.call(el.querySelectorAll("th[data-sort]"), function (th) {
+    th.addEventListener("click", function () {
+      var key = th.dataset.sort;
+      // Same column toggles direction; a new column starts descending for
+      // numbers (biggest first, which is what anyone sorting by CPU wants)
+      // and ascending for names.
+      if (SORT.key === key) { SORT.dir = -SORT.dir; }
+      else {
+        SORT.key = key;
+        SORT.dir = LIVE_COLS.filter(function (c) { return c.k === key; })[0].num ? -1 : 1;
+      }
+      renderLive();
+    });
+  });
+  wireKillButtons(el);
+  wireHighlight(el);
+};
+
+var NOW = null;
+
+/* The live view reads the machine directly every couple of seconds and the
+   recorder keeps writing every thirty. They are separate on purpose: the
+   history is what is worth storing for years, this is what is worth watching.
+   Nothing here writes, so polling fast costs nothing but a `ps`. */
+var loadLive = function () {
+  fetch("/api/now").then(function (r) { return r.json(); }).then(function (d) {
+    NOW = d;
+    LIVE = d.groups || [];
+    renderLive();
+    renderSummary();
+    var age = document.getElementById("liveage");
+    if (age) {
+      age.textContent = d.warming_up
+        ? "measuring\u2026"
+        : d.interval.toFixed(1) + "s window";
+    }
+  }).catch(function () {
+    document.getElementById("livebody").innerHTML =
+      '<div class="msg">Could not read the process list.</div>';
+  });
+};
+
+var loadPorts = function () {
+  var el = document.getElementById("portsbody");
+  fetch("/api/ports").then(function (r) { return r.json(); }).then(function (rows) {
+    if (!rows.length) { el.innerHTML = '<div class="msg">Nothing is listening.</div>'; return; }
+    el.innerHTML = '<table class="rows"><tr><th class="num">Port</th>' +
+      "<th>Process</th><th class='num'>PID</th><th>User</th><th>Address</th>" +
+      "<th></th></tr>" +
+      rows.map(function (r) {
+        return '<tr><td class="num"><b>' + r.port + "</b></td>" +
+          "<td>" + esc(r.command) + "</td>" +
+          '<td class="num">' + r.pid + "</td>" +
+          "<td>" + esc(r.user) + "</td>" +
+          "<td>" + esc(r.address) + "</td>" +
+          '<td><div class="act"><button data-pid="' + r.pid + '" data-name="' +
+          esc(r.command) + " on :" + r.port + '">Quit</button>' +
+          '<button class="danger" data-pid="' + r.pid + '" data-name="' +
+          esc(r.command) + " on :" + r.port + '" data-force="1">Force</button>' +
+          "</div></td></tr>";
+      }).join("") + "</table>";
+    wireKillButtons(el);
+  }).catch(function () {
+    el.innerHTML = '<div class="msg">Could not list ports.</div>';
+  });
+};
+
+var wireKillButtons = function (root) {
+  Array.prototype.forEach.call(root.querySelectorAll("button[data-pid]"), function (b) {
+    b.addEventListener("click", function () {
+      kill(parseInt(b.dataset.pid, 10), b.dataset.name, b.dataset.force === "1");
+    });
+  });
+};
+
+
+/* Refreshing is driven by the recorder's clock, not a free-running timer of
+   our own. /api/info carries the last tick's timestamp and costs a couple of
+   hundred bytes, so it is polled often and the expensive series fetch happens
+   only when that timestamp actually moves. Two unsynchronised 30s loops --
+   one writing, one reading -- otherwise means a redraw lands just before the
+   row it was waiting for, and the window re-transfers hundreds of kilobytes
+   to learn about one new bucket. */
+var LAST_TICK = null;
+
+var pollForNewData = function () {
+  // The live table and the port list describe this instant, so they refresh
+  // every time. The charts describe history, so they are only refetched when
+  // the recorder's last tick actually moves -- 164 bytes to ask, against 200
+  // kilobytes to answer.
+  loadLive();
+  loadPorts();
+  fetch("/api/info").then(function (r) { return r.json(); }).then(function (m) {
+    if (m.last_tick && m.last_tick !== LAST_TICK) {
+      LAST_TICK = m.last_tick;
+      META = m;
+      OLDEST = m.first_ts || OLDEST;
+    OLDEST = m.first_ts || OLDEST;
+      // Only chase the newest row while the view is following the present.
+      // Refetching a pinned window on every tick would drag it forward under
+      // the reader, which is the thing that makes a scrollable chart feel
+      // broken.
+      if (END === null) { load(); }
+      loadMeta();
+    }
+  }).catch(function () {});
+};
+
+// The saved range is where the page opens, so the header select is set from
+// it before the first fetch rather than being overwritten a moment later.
+RANGE = SETTINGS.range;
+syncRangeSelect();
+applyChartVisibility();
+
+load();
+loadLive();
+loadPorts();
+// Half the sample interval, so a new row reaches the screen within about
+// fifteen seconds of being written rather than up to a full interval later.
+setInterval(pollForNewData, 15000);
+// The live table and summary read the machine directly, so they can move at
+// human speed without touching the database.
+var livePoll = null;
+var restartLivePoll = function () {
+  if (livePoll) { clearInterval(livePoll); livePoll = null; }
+  // Zero means off. The history keeps updating either way -- this only stops
+  // the direct reads that back the table and the summary.
+  if (SETTINGS.live > 0) { livePoll = setInterval(loadLive, SETTINGS.live); }
+};
+restartLivePoll();
+</script>
+</body>
+</html>
