@@ -256,7 +256,8 @@ g.shift{will-change:transform}
 .stat:first-child{border-left:0}
 .stat .k{color:var(--ink3);font-size:11px;font-weight:520;letter-spacing:.04em;
  text-transform:uppercase;white-space:nowrap}
-.stat .row{display:flex;align-items:center;gap:9px;margin-top:6px}
+.stat .row{display:flex;align-items:baseline;gap:7px;margin-top:6px;
+ min-width:0}
 /* These values are rewritten every couple of seconds, and the text width
    changes with them: "976KB/s" is wider than "1MB/s", "8.0 GB" than "12 GB".
    Anything laid out after the number therefore moved on every refresh.
@@ -264,16 +265,27 @@ g.shift{will-change:transform}
    bar is pinned to the right edge so a value that outgrows its reservation
    still cannot push it. */
 .stat .v{font-size:15px;font-weight:560;letter-spacing:-.01em;white-space:nowrap;
- font-variant-numeric:tabular-nums;min-width:0;overflow:hidden}
+ font-variant-numeric:tabular-nums;flex-shrink:0}
+.stat .sep{color:var(--line);font-size:13px;flex-shrink:0}
+/* In the menu bar panel a card is about 100px wide, where "70.6% | 11.3GB/
+   16.0GB" cannot fit on one line and would truncate to an ellipsis -- which
+   hides the very number the caption exists to give. There it wraps to its own
+   line instead, and the separator goes with it. */
+@media (max-width: 900px){
+  .stat{padding:12px 14px}
+  .stat .row{flex-wrap:wrap;gap:0 6px}
+  .stat .sep{display:none}
+  .stat .sub2{flex-basis:100%;margin-top:2px}
+}
 .stat .v small{font-size:11.5px;font-weight:450;color:var(--ink3);margin-left:1px}
-.bar{height:10px;width:54px;border-radius:99px;background:var(--line);
- overflow:hidden;flex-shrink:0;margin-left:auto}
+.bar{height:6px;width:100%;border-radius:99px;background:var(--line);
+ overflow:hidden;margin-top:9px}
 .bar i{display:block;height:100%;border-radius:99px;transition:width .3s;
  min-width:3px}
-.stat .row{gap:10px}
-.stat .sub2{color:var(--ink3);font-size:11px;margin-top:4px;
- white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
- font-variant-numeric:tabular-nums}
+
+.stat .sub2{color:var(--ink3);font-size:11.5px;white-space:nowrap;
+ overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums;
+ min-width:0}
 .tabs{display:flex;gap:2px;background:var(--raise);border:1px solid var(--line);
  border-radius:10px;padding:3px}
 .tabs button{border:0;background:transparent;border-radius:7px;padding:5px 12px}
@@ -1279,21 +1291,23 @@ var renderSummary = function () {
 
   var cards = [
     {k: "CPU", v: (sys.cpu_busy / cores).toFixed(1), u: "%",
-     f: cpuFrac, c: "--s1", sub: cores + " cores, load " + sys.load1.toFixed(2)},
+     f: cpuFrac, c: "--s1",
+     sub: sys.load1.toFixed(1) + "/" + cores + " cores"},
     {k: "Memory", v: (memFrac * 100).toFixed(1), u: "%",
      f: memFrac, c: "--s3",
-     sub: fmtBytes(memUsed) + " of " + fmtBytes(META.mem_total_kb || 0)},
+     sub: fmtBytes(memUsed).replace(" ", "") + "/" +
+          fmtBytes(META.mem_total_kb || 0).replace(" ", "")},
     {k: "Disk", v: (diskFrac * 100).toFixed(1), u: "%",
      f: diskFrac, c: diskFrac > 0.9 ? "--s8" : "--s7",
-     sub: fmtBytes(sys.disk_free_kb) + " free"},
+     sub: fmtBytes(sys.disk_free_kb).replace(" ", "") + " free"},
     {k: "Disk I/O", v: fmtBytes(diskBytes / 1024).replace(/ /, ""), u: "/s",
      f: ioPeak > 0 ? diskBytes / ioPeak : 0, c: "--s4",
-     sub: ioPeak > 0 ? "of " + fmtBytes(ioPeak / 1024) + "/s peak"
+     sub: ioPeak > 0 ? "of " + fmtBytes(ioPeak / 1024).replace(" ", "") + "/s"
                      : "read + written"},
     {k: "Swap", v: fmtBytes(sys.swap_used_kb).replace(/ /, ""), u: "",
      f: swapPeak > 0 ? sys.swap_used_kb / swapPeak : 0, c: "--s5",
      sub: sys.swap_used_kb > 0
-       ? "of " + fmtBytes(swapPeak) + " peak" : "none"}
+       ? "of " + fmtBytes(swapPeak).replace(" ", "") + " peak" : "none"}
   ];
 
   // One horizontal strip rather than a row of cards: the value and its
@@ -1303,8 +1317,8 @@ var renderSummary = function () {
     return '<div class="stat"><div class="k">' + esc(c.k) + "</div>" +
       '<div class="row"><span class="v">' + esc(c.v) +
       (c.u ? "<small>" + c.u + "</small>" : "") + "</span>" +
-      bar(c.f, c.c) + "</div>" +
-      '<div class="sub2">' + c.sub + "</div></div>";
+      '<span class="sep">|</span><span class="sub2">' + c.sub + "</span>" +
+      "</div>" + bar(c.f, c.c) + "</div>";
   }).join("");
 };
 
