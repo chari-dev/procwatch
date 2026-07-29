@@ -257,16 +257,23 @@ g.shift{will-change:transform}
 .stat .k{color:var(--ink3);font-size:11px;font-weight:520;letter-spacing:.04em;
  text-transform:uppercase;white-space:nowrap}
 .stat .row{display:flex;align-items:center;gap:9px;margin-top:6px}
+/* These values are rewritten every couple of seconds, and the text width
+   changes with them: "976KB/s" is wider than "1MB/s", "8.0 GB" than "12 GB".
+   Anything laid out after the number therefore moved on every refresh.
+   tabular-nums fixes the digits; the reserved width fixes the rest, and the
+   bar is pinned to the right edge so a value that outgrows its reservation
+   still cannot push it. */
 .stat .v{font-size:15px;font-weight:560;letter-spacing:-.01em;white-space:nowrap;
- font-variant-numeric:tabular-nums}
+ font-variant-numeric:tabular-nums;min-width:0;overflow:hidden}
 .stat .v small{font-size:11.5px;font-weight:450;color:var(--ink3);margin-left:1px}
 .bar{height:10px;width:54px;border-radius:99px;background:var(--line);
- overflow:hidden;flex-shrink:0}
+ overflow:hidden;flex-shrink:0;margin-left:auto}
 .bar i{display:block;height:100%;border-radius:99px;transition:width .3s;
  min-width:3px}
 .stat .row{gap:10px}
 .stat .sub2{color:var(--ink3);font-size:11px;margin-top:4px;
- white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+ font-variant-numeric:tabular-nums}
 .tabs{display:flex;gap:2px;background:var(--raise);border:1px solid var(--line);
  border-radius:10px;padding:3px}
 .tabs button{border:0;background:transparent;border-radius:7px;padding:5px 12px}
@@ -1281,12 +1288,12 @@ var renderSummary = function () {
      sub: fmtBytes(sys.disk_free_kb) + " free"},
     {k: "Disk I/O", v: fmtBytes(diskBytes / 1024).replace(/ /, ""), u: "/s",
      f: ioPeak > 0 ? diskBytes / ioPeak : 0, c: "--s4",
-     sub: ioPeak > 0 ? "peak " + fmtBytes(ioPeak / 1024) + "/s in view"
+     sub: ioPeak > 0 ? "of " + fmtBytes(ioPeak / 1024) + "/s peak"
                      : "read + written"},
     {k: "Swap", v: fmtBytes(sys.swap_used_kb).replace(/ /, ""), u: "",
      f: swapPeak > 0 ? sys.swap_used_kb / swapPeak : 0, c: "--s5",
      sub: sys.swap_used_kb > 0
-       ? "peak " + fmtBytes(swapPeak) + " in view" : "none"}
+       ? "of " + fmtBytes(swapPeak) + " peak" : "none"}
   ];
 
   // One horizontal strip rather than a row of cards: the value and its
