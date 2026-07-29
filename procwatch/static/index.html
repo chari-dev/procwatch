@@ -283,7 +283,7 @@ g.shift{will-change:transform}
 .info{display:inline-flex;align-items:center;justify-content:center;
  width:16px;height:16px;margin-left:7px;padding:0;border-radius:50%;
  border:1px solid var(--line);background:transparent;color:var(--ink3);
- font-size:10px;font-style:italic;font-family:Georgia,serif;line-height:1;
+ font:inherit;font-size:10px;font-weight:600;line-height:1;
  cursor:help;vertical-align:2px;position:relative}
 .info:hover,.info:focus-visible{border-color:var(--s1);color:var(--ink)}
 .info em{display:none;position:absolute;left:-8px;top:22px;z-index:40;
@@ -292,10 +292,10 @@ g.shift{will-change:transform}
  font:inherit;font-size:11.5px;font-style:normal;line-height:1.5;
  text-align:left;white-space:normal;box-shadow:0 12px 30px rgba(0,0,0,.4)}
 .info:hover em,.info:focus em,.info:focus-within em{display:block}
-/* The card clips its charts so a panned plot cannot spill; a tooltip anchored
-   near the right edge would be clipped with them, so it opens leftwards
-   there instead. */
-.grid .card:nth-child(even) .info em{left:auto;right:-8px}
+/* Which way it opens is decided when it opens, from where it actually is --
+   guessing from the card's position in the grid got it wrong for half of
+   them, and a tooltip clipped in half is worse than none. */
+.info em.left{left:auto;right:-8px}
 
 /* Tables get their own scrolling. A card that grows to fit a hundred rows
    pushes everything below it off the page, and a table wider than a phone or
@@ -307,7 +307,8 @@ g.shift{will-change:transform}
  z-index:2;background:var(--card)}
 
 .menuwrap{position:relative}
-#burger{width:31px;height:29px;font-size:14px;line-height:1}
+#burger{display:inline-flex;align-items:center;justify-content:center;
+ width:31px;height:29px;padding:0;font-size:15px;line-height:1}
 #burgermenu{position:absolute;right:0;top:34px;min-width:206px;z-index:75;
  background:var(--bg);border:1px solid var(--line);border-radius:11px;
  padding:5px;box-shadow:0 18px 44px rgba(0,0,0,.4)}
@@ -998,6 +999,47 @@ var indexFromEvent = function (e) {
 
 /* Every chart carries its own crosshair and hit target. This used to key off
    a single "hit" id, so only the first chart drawn was ever interactive. */
+/* A heading's own words.
+   
+   textContent gathers everything nested, and the heading now contains the
+   info button and its whole description -- so the crosshair label read
+   "Load averageiThreads wanting a core, one-minute mean." and overflowed the
+   tooltip. Only the direct text nodes are the title. */
+/* Open the description on whichever side has room for it.
+   
+   Measured at the moment it opens rather than assumed from the card's place
+   in the grid: cards reflow at narrow widths, and a tooltip that runs off the
+   card is clipped by the same rule that stops a panned chart spilling. */
+var placeInfo = function (button) {
+  var tip = button.querySelector("em");
+  if (!tip) { return; }
+  tip.classList.remove("left");
+  var card = button.closest(".card") || document.body;
+  var box = tip.getBoundingClientRect();
+  var within = card.getBoundingClientRect();
+  if (box.right > Math.min(within.right, window.innerWidth) - 6) {
+    tip.classList.add("left");
+  }
+};
+
+document.addEventListener("mouseover", function (e) {
+  var button = e.target.closest ? e.target.closest(".info") : null;
+  if (button) { placeInfo(button); }
+});
+document.addEventListener("focusin", function (e) {
+  var button = e.target.closest ? e.target.closest(".info") : null;
+  if (button) { placeInfo(button); }
+});
+
+var headingText = function (h2) {
+  if (!h2) { return ""; }
+  var out = "";
+  Array.prototype.forEach.call(h2.childNodes, function (node) {
+    if (node.nodeType === 3) { out += node.nodeValue; }
+  });
+  return out.trim();
+};
+
 var placeTip = function (tip, e) {
   tip.style.opacity = "1";
   tip.style.left =
@@ -1118,7 +1160,8 @@ var wireSimple = function (elId, key, unit, scale) {
     tip.innerHTML = "<h4>" + esc(fmtFull(ts)) + "</h4>" +
       (v === undefined
         ? '<div style="color:' + css("--ink3") + '">nothing recorded</div>'
-        : "<table><tr><td>" + esc(root.parentNode.querySelector("h2").textContent) +
+        : "<table><tr><td>" +
+          esc(headingText(root.parentNode.querySelector("h2"))) +
           "</td><td>" + (v >= 10 ? v.toFixed(0) : v.toFixed(2)) + unit +
           "</td></tr></table>");
     placeTip(tip, e);
