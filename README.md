@@ -41,9 +41,11 @@ every 30 seconds, and builds and installs the menu bar app. Nothing needs
 `sudo`, and nothing is written outside your home directory and
 `/Applications`. Run it again any time to upgrade in place.
 
-Only the menu bar app needs developer tools. Without `swiftc` the installer
-says so and carries on — you still get the recorder and the dashboard. Pass
-`--no-app` to skip it deliberately.
+Only the menu bar app needs developer tools: it is compiled on your machine,
+which is what keeps it out of Gatekeeper's quarantine — a downloaded unsigned
+app is refused outright. Without `swiftc` the installer says so and carries on;
+you still get the recorder and the dashboard, and can add the app later with
+`python3 procwatch.py app`. Pass `--no-app` to skip it deliberately.
 
 **Remove it**, keeping everything recorded so far:
 
@@ -65,6 +67,7 @@ copy it anywhere with a Mac and a Python:
 python3 procwatch.py install    # record every 30 seconds
 python3 procwatch.py open       # dashboard in a browser
 python3 procwatch.py status     # what is stored
+python3 procwatch.py app        # build and install the menu bar app
 ```
 
 Refer to it by full path if you move it. The scheduled job records where it
