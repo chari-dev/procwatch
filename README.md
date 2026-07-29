@@ -6,7 +6,7 @@
 right now, then forgets. Procwatch remembers — so you can ask what ate the CPU
 at 3am last Tuesday and get an answer.
 
-![The Procwatch dashboard](docs/images/dashboard.png)
+![Procwatch: installing it, then the dashboard](docs/images/dashboard.gif)
 
 No dependencies. macOS and Python 3.9+, nothing else. Around 110 MB of disk
 once it settles, and it never grows past that.
