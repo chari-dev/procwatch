@@ -1,12 +1,12 @@
-"""procwatch install | open | serve | record | app | backup | restore |
-alert | status | uninstall"""
+"""procwatch install | open | serve | record | share | peer | app | backup |
+restore | alert | status | uninstall"""
 import argparse
 import json
 import os
 import sys
 import time
 
-from . import alerts, appbuild, archive, config, db, launchd, peers
+from . import alerts, appbuild, archive, config, db, launchd, peers, share
 
 
 def _status():
@@ -56,10 +56,15 @@ def _peer(args):
             print("usage: procwatch peer add <name> <ssh-host>", file=sys.stderr)
             return 1
         try:
-            peers.add(args.name, args.host, args.program)
+            where = peers.add(args.name, args.host, args.key)
         except ValueError as error:
             print(error, file=sys.stderr)
             return 1
+        if not args.key:
+            print("added %s at %s, but with no key -- it will be refused.\n"
+                  "Run `procwatch share` on that machine and pass the three "
+                  "words it prints with --key." % (args.name, where),
+                  file=sys.stderr)
     elif args.action == "remove":
         if not args.name or not peers.remove(args.name):
             print("no peer called %r" % args.name, file=sys.stderr)
@@ -86,8 +91,7 @@ def _peer(args):
               "  procwatch peer add laptop user@host.example")
         return 0
     for peer in current:
-        print("%-16s %s%s" % (peer["name"], peer["host"],
-                              "  (%s)" % peer["program"] if peer["program"] else ""))
+        print("%-16s %s" % (peer["name"], peer["host"]))
     return 0
 
 
@@ -201,8 +205,13 @@ def main(argv=None):
                         nargs="?", default="list")
     peerer.add_argument("name", nargs="?")
     peerer.add_argument("host", nargs="?")
-    peerer.add_argument("--program", default="",
-                        help="path to procwatch.py there, if not the usual one")
+    peerer.add_argument("--key", default="",
+                        help="the three words that machine printed")
+
+    sharer = sub.add_parser("share")
+    sharer.add_argument("--port", type=int, default=share.DEFAULT_PORT)
+    sharer.add_argument("--new-key", action="store_true",
+                        help="forget the old key and print a new one")
 
     builder = sub.add_parser("app")
     builder.add_argument("--to", default="/Applications")
@@ -241,6 +250,8 @@ def main(argv=None):
         return _fetch(args.path, args.query)
     if args.command == "peer":
         return _peer(args)
+    if args.command == "share":
+        return share.serve(args.port, reset=args.new_key)
     if args.command == "app":
         try:
             path = appbuild.build(args.to)

@@ -1,11 +1,12 @@
 import json
 import os
 import shutil
-import subprocess
 import tempfile
 import unittest
+import urllib.error
+import urllib.request
 
-from procwatch import config, peers
+from procwatch import config, peers, share
 
 
 class PeerCase(unittest.TestCase):
@@ -23,98 +24,133 @@ class PeerCase(unittest.TestCase):
         shutil.rmtree(self.dir, ignore_errors=True)
 
 
+class TestAddresses(PeerCase):
+    """What people type has to work.
+
+    Being corrected about a URL scheme is a poor first experience of a feature
+    whose entire pitch is that it is simple.
+    """
+
+    def test_a_bare_address_gets_a_scheme_and_the_default_port(self):
+        self.assertEqual(peers.normalise("192.168.1.42"),
+                         "http://192.168.1.42:%d" % share.DEFAULT_PORT)
+
+    def test_an_address_with_a_port_is_left_alone(self):
+        self.assertEqual(peers.normalise("192.168.1.42:9000"),
+                         "http://192.168.1.42:9000")
+
+    def test_a_full_url_is_accepted(self):
+        self.assertEqual(peers.normalise("http://laptop.local:8791/"),
+                         "http://laptop.local:8791")
+
+    def test_a_hostname_works_like_an_address(self):
+        self.assertEqual(peers.normalise("laptop.local"),
+                         "http://laptop.local:%d" % share.DEFAULT_PORT)
+
+    def test_an_empty_address_is_refused(self):
+        with self.assertRaises(ValueError):
+            peers.normalise("")
+
+
 class TestRegistry(PeerCase):
-    def test_a_peer_round_trips(self):
-        peers.add("laptop", "me@host")
-        self.assertEqual(peers.listing(),
-                         [{"name": "laptop", "host": "me@host", "program": ""}])
+    def test_a_device_round_trips(self):
+        peers.add("laptop", "192.168.1.42", "fill-root-odds")
+        got = peers.listing(with_keys=True)[0]
+        self.assertEqual(got["name"], "laptop")
+        self.assertEqual(got["host"], "http://192.168.1.42:8791")
+        self.assertEqual(got["key"], "fill-root-odds")
+
+    def test_the_key_is_not_handed_to_the_browser(self):
+        """The page has no use for it.
+
+        A dashboard left open on a shared screen should not be a list of the
+        keys to every other machine you own.
+        """
+        peers.add("laptop", "192.168.1.42", "fill-root-odds")
+        self.assertNotIn("key", peers.listing()[0])
 
     def test_adding_the_same_name_replaces_rather_than_duplicates(self):
-        peers.add("laptop", "me@old")
-        peers.add("laptop", "me@new")
-        self.assertEqual([p["host"] for p in peers.listing()], ["me@new"])
+        peers.add("laptop", "10.0.0.1", "a-b-c")
+        peers.add("laptop", "10.0.0.2", "d-e-f")
+        rows = peers.listing(with_keys=True)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["key"], "d-e-f")
 
-    def test_a_peer_needs_a_host(self):
+    def test_the_local_machines_name_is_reserved(self):
         with self.assertRaises(ValueError):
-            peers.add("laptop", "")
-
-    def test_the_local_machine_s_name_is_reserved(self):
-        # The switcher always offers "This Mac"; a peer by that name would be
-        # two different machines under one label.
-        with self.assertRaises(ValueError):
-            peers.add("This Mac", "me@host")
+            peers.add("This Mac", "10.0.0.1", "a-b-c")
 
     def test_removing_reports_whether_it_existed(self):
-        peers.add("laptop", "me@host")
+        peers.add("laptop", "10.0.0.1", "a-b-c")
         self.assertTrue(peers.remove("laptop"))
         self.assertFalse(peers.remove("laptop"))
 
 
 class TestFetch(PeerCase):
-    """What actually reaches the far side.
-
-    Everything here runs over ssh, so the command is assembled rather than
-    typed -- and a peer's name arrives from a browser.
-    """
-
     def setUp(self):
         super(TestFetch, self).setUp()
-        peers.add("laptop", "me@host")
-        self.calls = []
-        self.real_run = subprocess.run
-
-        def fake_run(cmd, **kw):
-            self.calls.append(cmd)
-            return subprocess.CompletedProcess(cmd, 0, json.dumps({"ok": 1}), "")
-
-        subprocess.run = fake_run
+        peers.add("laptop", "10.0.0.1", "fill-root-odds")
+        self.seen = {}
+        self.real_open = urllib.request.urlopen
 
     def tearDown(self):
-        subprocess.run = self.real_run
+        urllib.request.urlopen = self.real_open
         super(TestFetch, self).tearDown()
 
-    def test_it_runs_fetch_on_the_peer(self):
+    def _answer(self, payload=None, error=None):
+        def fake(request, timeout=None):
+            self.seen["url"] = request.full_url
+            self.seen["headers"] = dict(request.headers)
+            self.seen["timeout"] = timeout
+            if error:
+                raise error
+            class Response(object):
+                def read(self):
+                    return json.dumps(payload).encode()
+                def __enter__(self):
+                    return self
+                def __exit__(self, *a):
+                    return False
+            return Response()
+        urllib.request.urlopen = fake
+
+    def test_it_asks_the_right_url_with_the_key(self):
+        self._answer({"ok": 1})
         self.assertEqual(peers.fetch("laptop", "/api/info", {}), {"ok": 1})
-        command = self.calls[0]
-        self.assertEqual(command[0], "ssh")
-        self.assertIn("me@host", command)
-        self.assertIn("fetch", command[-1])
+        self.assertEqual(self.seen["url"], "http://10.0.0.1:8791/api/info")
+        self.assertIn("fill-root-odds", str(self.seen["headers"]))
 
-    def test_it_refuses_to_hang_on_a_sleeping_machine(self):
-        # A laptop with the lid shut must fail quickly, not block the page.
-        command = self.calls if self.calls else peers.fetch("laptop", "/api/info", {}) or self.calls
+    def test_query_parameters_are_encoded(self):
+        self._answer({})
+        peers.fetch("laptop", "/api/series", {"scope": ["apps"], "limit": ["12"]})
+        self.assertIn("scope=apps", self.seen["url"])
+        self.assertIn("limit=12", self.seen["url"])
+
+    def test_it_does_not_wait_forever_on_a_sleeping_machine(self):
+        self._answer({})
         peers.fetch("laptop", "/api/info", {})
-        flat = " ".join(self.calls[-1])
-        self.assertIn("ConnectTimeout", flat)
-        self.assertIn("BatchMode=yes", flat)
+        self.assertTrue(0 < self.seen["timeout"] <= 60)
 
-    def test_a_path_with_shell_characters_stays_one_argument(self):
-        """The remote string is parsed by a shell on the far side.
+    def test_a_refused_key_says_so_plainly(self):
+        self._answer(error=urllib.error.HTTPError(
+            "u", 401, "Unauthorized", {}, None))
+        with self.assertRaises(RuntimeError) as caught:
+            peers.fetch("laptop", "/api/info", {})
+        self.assertIn("refused the key", str(caught.exception))
 
-        Asserted by parsing it the way that shell would: the dangerous text
-        has to come out as a single argument to fetch, not as a second
-        command. Checking for quotes in the string proves nothing -- what
-        matters is how it parses.
-        """
-        import shlex
-        peers.fetch("laptop", "/api/info; rm -rf ~", {})
-        argv = shlex.split(self.calls[-1][-1])
-        self.assertEqual(argv[0], "python3")
-        self.assertEqual(argv[2], "fetch")
-        self.assertEqual(argv[3], "/api/info; rm -rf ~")
-        self.assertNotIn("rm", argv[:3])
+    def test_being_locked_out_says_so_plainly(self):
+        self._answer(error=urllib.error.HTTPError("u", 429, "Too Many", {}, None))
+        with self.assertRaises(RuntimeError) as caught:
+            peers.fetch("laptop", "/api/info", {})
+        self.assertIn("refusing keys", str(caught.exception))
 
-    def test_query_values_cannot_become_shell_syntax(self):
-        # They are URL-encoded before they are ever quoted, so a semicolon
-        # arrives as %3B and could not act as one even unquoted.
-        import shlex
-        peers.fetch("laptop", "/api/series", {"scope": ["apps; whoami"]})
-        argv = shlex.split(self.calls[-1][-1])
-        self.assertEqual(len(argv), 5)
-        self.assertNotIn(";", argv[4])
-        self.assertIn("%3B", argv[4])
+    def test_an_unreachable_machine_suggests_the_likely_cause(self):
+        self._answer(error=urllib.error.URLError("Connection refused"))
+        with self.assertRaises(RuntimeError) as caught:
+            peers.fetch("laptop", "/api/info", {})
+        self.assertIn("procwatch share", str(caught.exception))
 
-    def test_an_unknown_peer_is_a_key_error(self):
+    def test_an_unknown_device_is_a_key_error(self):
         with self.assertRaises(KeyError):
             peers.fetch("nope", "/api/info", {})
 
@@ -122,32 +158,27 @@ class TestFetch(PeerCase):
 class TestCheck(PeerCase):
     def setUp(self):
         super(TestCheck, self).setUp()
-        peers.add("laptop", "me@host")
+        peers.add("laptop", "10.0.0.1", "a-b-c")
         self.real_fetch = peers.fetch
 
     def tearDown(self):
         peers.fetch = self.real_fetch
         super(TestCheck, self).tearDown()
 
-    def test_age_is_measured_against_the_peers_own_clock(self):
-        """Two Macs can disagree by hours, and these two do.
-
-        Measuring a remote sample's age with the local clock reports a
-        perfectly healthy recorder as hours stale.
-        """
+    def test_age_is_measured_against_that_machines_clock(self):
+        # Two Macs can be hours apart in absolute time. Measuring with the
+        # local clock reports a healthy recorder as long stale.
         peers.fetch = lambda *a, **k: {"hostname": "far", "now": 1_000_000,
                                        "last_tick": 999_970}
-        state = peers.check("laptop")
-        self.assertTrue(state["ok"])
-        self.assertEqual(state["last_tick_age"], 30)
+        self.assertEqual(peers.check("laptop")["last_tick_age"], 30)
 
-    def test_an_unreachable_peer_reports_rather_than_raises(self):
+    def test_an_unreachable_device_reports_rather_than_raises(self):
         def boom(*a, **k):
-            raise RuntimeError("ssh: connect to host me@host port 22: timed out")
+            raise RuntimeError("cannot reach laptop")
         peers.fetch = boom
         state = peers.check("laptop")
         self.assertFalse(state["ok"])
-        self.assertIn("timed out", state["error"])
+        self.assertIn("cannot reach", state["error"])
 
 
 if __name__ == "__main__":

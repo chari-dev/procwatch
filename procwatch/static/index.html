@@ -525,6 +525,20 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
     </div>
 
     <div class="setrow wide">
+      <label>Other Macs</label>
+      <div id="devlist"><span class="hint">Loading&hellip;</span></div>
+      <div class="alertadd">
+        <input id="devname" placeholder="name, e.g. laptop">
+        <input id="devhost" placeholder="192.168.1.42">
+        <input id="devkey" placeholder="three-word key">
+        <button id="devadd" class="ghost">Add</button>
+      </div>
+      <small>On the other Mac run <code>procwatch share</code>. It prints three
+        words &mdash; type them here with its address. That port is read-only:
+        no process can be ended and no database copied through it.</small>
+    </div>
+
+    <div class="setrow wide">
       <label>Alerts</label>
       <div id="alertrules"><span class="hint">Loading&hellip;</span></div>
       <div class="alertadd">
@@ -2130,9 +2144,60 @@ var renderDevices = function () {
   document.body.classList.toggle("remote", !isLocal());
 };
 
+var renderDeviceList = function () {
+  var box = document.getElementById("devlist");
+  if (!box) { return; }
+  if (!DEVICES.length) {
+    box.innerHTML = '<span class="hint">None yet. This Mac only.</span>';
+    return;
+  }
+  box.innerHTML = DEVICES.map(function (d) {
+    return '<div class="rule"><b>' + esc(d.name) + "</b> " + esc(d.host) +
+      '<button data-device="' + esc(d.name) + '" title="Remove">&times;</button>' +
+      "</div>";
+  }).join("");
+};
+
+var postDevice = function (body) {
+  return fetch("/api/peers", {
+    method: "POST",
+    headers: {"Content-Type": "application/json",
+              "X-Procwatch": "1", "X-Procwatch-Token": TOKEN},
+    body: JSON.stringify(body)
+  }).then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d && d.error) { toast(d.error, true); return; }
+      loadDevices();
+    })
+    .catch(function () { toast("Could not change devices", true); });
+};
+
+on("devadd", "click", function () {
+  var name = document.getElementById("devname").value.trim();
+  var host = document.getElementById("devhost").value.trim();
+  var key = document.getElementById("devkey").value.trim();
+  if (!name || !host) { toast("A name and an address are needed", true); return; }
+  if (!key) { toast("Without the key that machine will refuse us", true); return; }
+  postDevice({action: "add", name: name, host: host, key: key});
+  document.getElementById("devname").value = "";
+  document.getElementById("devhost").value = "";
+  document.getElementById("devkey").value = "";
+});
+on("devlist", "click", function (e) {
+  var button = e.target.closest ? e.target.closest("button[data-device]") : null;
+  if (!button) { return; }
+  var name = button.dataset.device;
+  if (DEVICE === name) { selectDevice(""); }
+  postDevice({action: "remove", name: name});
+});
+
 var loadDevices = function () {
   return fetch("/api/peers").then(function (r) { return r.json(); })
-    .then(function (list) { DEVICES = list || []; renderDevices(); })
+    .then(function (list) {
+      DEVICES = list || [];
+      renderDevices();
+      renderDeviceList();
+    })
     .catch(function () {});
 };
 

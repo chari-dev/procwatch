@@ -187,6 +187,136 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             conn.close()
 
+    def do_POST(self):
+        """The mutating endpoints: signal a process, and change alert rules.
+
+        Restricted to processes the calling user owns, which is also all the
+        kernel would permit without privilege. The check is here so the
+        failure is a legible message rather than a permission error, and so a
+        typo cannot aim a signal at a system daemon by accident.
+        """
+        self.server.last_seen = time.time()
+        parsed = urlparse(self.path)
+        if parsed.path not in ("/api/kill", "/api/alerts", "/api/peers"):
+            return self._send(404, "not found", "text/plain")
+        # Same guard for both. Changing a rule is far less dangerous than
+        # signalling a process, but a page on another origin still has no
+        # business silencing someone's alerts.
+        refusal = self._reject_cross_origin()
+        if refusal:
+            return self._send(403, json.dumps({"ok": False, "error": refusal}),
+                              "application/json")
+        if parsed.path == "/api/alerts":
+            return self._change_alert()
+        if parsed.path == "/api/peers":
+            return self._change_peer()
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+            pid = int(body["pid"])
+            signal_name = body.get("signal", "TERM")
+        except (ValueError, KeyError, TypeError):
+            return self._send(400, json.dumps({"ok": False, "error": "pid required"}),
+                              "application/json")
+        result = procs.signal_pid(pid, signal_name)
+        code = 200 if result["ok"] else 400
+        self._send(code, json.dumps(result), "application/json")
+
+    def _change_alert(self):
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            return self._send(400, json.dumps({"error": "malformed request"}),
+                              "application/json")
+        conn = db.connect(config.DB_PATH)
+        try:
+            action = body.get("action")
+            if action == "add":
+                alerts.add(conn, str(body.get("pattern") or "*"),
+                           str(body.get("metric") or "cpu"),
+                           float(body.get("threshold", 80)),
+                           int(body.get("sustain", 600)))
+            elif action == "remove":
+                alerts.remove(conn, int(body["id"]))
+            else:
+                return self._send(400, json.dumps({"error": "unknown action"}),
+                                  "application/json")
+            return self._send(200, json.dumps({"ok": True,
+                                               "rules": alerts.rules(conn)}),
+                              "application/json")
+        except (ValueError, KeyError, TypeError) as error:
+            return self._send(400, json.dumps({"error": str(error)}),
+                              "application/json")
+        finally:
+            conn.close()
+
+    def do_OPTIONS(self):
+        """Refuse preflight explicitly.
+
+        Answering it with permissive CORS headers is what would let a hostile
+        page through; declining is the whole point, so it is stated here
+        rather than left to the base class's 501.
+        """
+        self._send(403, "cross-origin requests are not served", "text/plain")
+
+    def _reject_cross_origin(self):
+        """Return an error string if this request could be a forged one.
+
+        Binding 127.0.0.1 keeps other machines out; it does nothing about the
+        browser already on this one. Any page the user visits can POST to
+        localhost, and with Content-Type text/plain that is a CORS "simple
+        request" -- no preflight, sent straight through. The attacker cannot
+        read the reply, but a process is already dead by then. Verified
+        against this very endpoint before these checks existed.
+
+        Four layers, because each covers a different escape:
+          - a JSON Content-Type is not a simple request, so it forces a
+            preflight the server never answers;
+          - a custom header cannot be set cross-origin without that same
+            preflight;
+          - Origin, when the browser sends it, must be our own;
+          - a token minted per server run and readable only by same-origin
+            script, so a blind cross-origin POST cannot guess it.
+        """
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip()
+        if ctype != "application/json":
+            return "Content-Type must be application/json"
+        if self.headers.get("X-Procwatch") != "1":
+            return "missing X-Procwatch header"
+        origin = self.headers.get("Origin")
+        allowed = getattr(self.server, "allowed_origins", None)
+        if origin and allowed is not None and origin not in allowed:
+            return "cross-origin request refused"
+        token = self.headers.get("X-Procwatch-Token")
+        if not token or not hmac.compare_digest(token, _token_of(self.server)):
+            return "bad or missing session token"
+        return None
+
+    def _change_peer(self):
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            return self._send(400, json.dumps({"error": "malformed request"}),
+                              "application/json")
+        try:
+            action = body.get("action")
+            if action == "add":
+                peers.add(str(body.get("name") or ""),
+                          str(body.get("host") or ""),
+                          str(body.get("key") or ""))
+            elif action == "remove":
+                peers.remove(str(body.get("name") or ""))
+            else:
+                return self._send(400, json.dumps({"error": "unknown action"}),
+                                  "application/json")
+        except (ValueError, KeyError, TypeError) as error:
+            return self._send(400, json.dumps({"error": str(error)}),
+                              "application/json")
+        self._send(200, json.dumps({"ok": True, "peers": peers.listing()}),
+                   "application/json")
+
     def _send_remote(self, params):
         """Relay one read-only API path to a peer over SSH.
 

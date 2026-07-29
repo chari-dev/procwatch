@@ -107,23 +107,34 @@ With it off you see apps: Arc, Chrome, Spotify — each with its helpers folded
 in, so a browser is one row rather than thirty. With it on you see every
 process group the recorder tracks, daemons included.
 
-**Other Macs.** Add a machine that is also running the recorder and the
-switcher beside the time range will show it:
+**Other Macs.** On the machine you want to watch:
 
 ```sh
-python3 procwatch.py peer add laptop you@laptop.local
-python3 procwatch.py peer check
+python3 procwatch.py share
 ```
 
-It is read over SSH, using keys you already have — no machine opens a port,
-and nothing is centralised: each one still records for itself. Quit, Force
-quit, backup and export are hidden while you are looking at another machine,
-because they act on the one running the page. Ending a process on another Mac
-is a decision that belongs on that Mac.
+It prints three words. On the machine doing the watching, open settings, type
+that machine's address and the three words, and it appears in the switcher
+beside the time range. Or from a terminal:
 
-Clocks are handled: the two machines this was built against are ten hours
-apart in absolute time, so every window is expressed in the clock of whichever
-machine is being asked.
+```sh
+python3 procwatch.py peer add laptop 192.168.1.42 --key left-gift-wife
+```
+
+That port is **read-only**, and not because a setting says so: it has no route
+to anything that can end a process or copy a database, so the worst case if a
+key leaks is that someone learns which applications you run. Five wrong keys
+buys a minute of silence. Nothing is centralised — each machine still records
+for itself.
+
+Quit, Force quit, backup and export hide while you are looking at another
+machine, because they act on the one running the page. Ending a process on
+another Mac is a decision that belongs on that Mac.
+
+It is plain HTTP on your own network: fine at home, and someone sharing a café
+network could read it. Clocks are handled — the two machines this was built
+against are ten hours apart in absolute time, so every window is expressed in
+the clock of whichever machine is being asked.
 
 Macs only. The recorder reads `proc_pid_rusage`, `nettop`, `vm_stat` and
 `ioreg`, so a Linux box would need a second sampler that does not exist yet.
