@@ -18,7 +18,7 @@ set -eu
 
 APP_SUPPORT="$HOME/Library/Application Support/procwatch"
 TARGET="$APP_SUPPORT/procwatch.py"
-APP="/Applications/ProcwatchBar.app"
+APP="/Applications/Procwatch.app"
 PLIST="$HOME/Library/LaunchAgents/dev.procwatch.sampler.plist"
 DATA="$HOME/.local/share/procwatch"
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -29,12 +29,15 @@ say()  { printf '  %s\n' "$*"; }
 fail() { printf '\nprocwatch: %s\n' "$*" >&2; exit 1; }
 
 uninstall() {
-    printf '\nRemoving procwatch\n'
+    printf '\nRemoving Procwatch\n'
     launchctl unload "$PLIST" 2>/dev/null || true
     rm -f "$PLIST" && say "recorder stopped"
     osascript -e 'quit app "Procwatch"' 2>/dev/null || true
     pkill -f "ProcwatchBar" 2>/dev/null || true
     rm -rf "$APP" && say "menu bar app removed"
+    # 1.0.0 installed the bundle as ProcwatchBar.app. An upgrade would
+    # otherwise leave a stale second copy in /Applications and Launchpad.
+    rm -rf "/Applications/ProcwatchBar.app"
     rm -rf "$APP_SUPPORT" && say "program removed"
     # The sampler log is diagnostics, not history, so it goes with the program.
     rm -rf "$HOME/.local/state/procwatch" && say "logs removed"
@@ -64,7 +67,7 @@ import sys
 sys.exit(0 if sys.version_info >= (3, 9) else 1)
 PY
 
-printf '\nInstalling procwatch\n'
+printf '\nInstalling Procwatch\n'
 
 # 1. The program. Built from source in a checkout; used as-is when someone has
 #    downloaded only the single file.

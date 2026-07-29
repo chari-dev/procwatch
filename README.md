@@ -104,6 +104,12 @@ With it off you see apps: Arc, Chrome, Spotify — each with its helpers folded
 in, so a browser is one row rather than thirty. With it on you see every
 process group the recorder tracks, daemons included.
 
+**Press `/`** to search everything ever recorded — not just what is on
+screen. Type a process, an application, or part of a command line. Results
+show each match's peak CPU and when it was last seen; choosing one pins it
+across every chart, and moves the window to when it last ran if that was
+outside the range you are looking at.
+
 **The gear** opens settings: how much time the charts show, how many
 processes each one ranks, chart height, how often the live table refreshes,
 and which charts appear at all. Settings live in your browser, not on the

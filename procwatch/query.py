@@ -402,3 +402,95 @@ def activity(conn, start, end):
              "cpu_max": a["peak"] / 10.0,
              "coverage": min(1.0, a["samples"] / float(nominal))}
             for hour, a in sorted(hours.items())]
+
+
+def _like(term):
+    """A LIKE pattern that matches `term` anywhere, with the wildcards in it
+    treated as literal text.
+
+    Without escaping, searching for "_" matches every single character and
+    "%" matches everything -- so the two characters a user is most likely to
+    type when looking for a path or a percentage would return the whole
+    database.
+    """
+    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return "%" + escaped + "%"
+
+
+def search(conn, term, limit=25, now=None):
+    """Everything ever recorded whose name, application or command matches.
+
+    Searches the identity table rather than the samples: identities are
+    interned once and number in the thousands, where samples number in the
+    millions. The samples are then consulted only for the handful of
+    identities that matched, to say when each was last seen and how hard it
+    ever worked -- which is what makes a result worth clicking.
+    """
+    term = (term or "").strip()
+    if not term:
+        return []
+    rows = conn.execute(
+        "SELECT id, exe, args_sig, cmdline_full, is_system, app FROM proc "
+        "WHERE exe LIKE ? ESCAPE '\\' OR app LIKE ? ESCAPE '\\' "
+        "   OR cmdline_full LIKE ? ESCAPE '\\' "
+        # An exact name first, then a name that starts with the term, then
+        # anything else: typing "arc" should not lead with a command line that
+        # happens to mention it.
+        "ORDER BY (LOWER(exe) = LOWER(?)) DESC, "
+        "         (LOWER(exe) LIKE LOWER(?) || '%') DESC, exe "
+        "LIMIT ?",
+        (_like(term), _like(term), _like(term), term, term, limit * 4)).fetchall()
+    if not rows:
+        return []
+
+    ids = [r[0] for r in rows]
+    placeholders = ",".join("?" * len(ids))
+    stats_sql = (
+        "SELECT proc_id, MAX(ts), MAX(cpu_max), MAX(rss_max), SUM(samples) "
+        "FROM (%s) GROUP BY proc_id"
+        % " UNION ALL ".join(
+            "SELECT proc_id, ts, cpu_max, rss_max, samples FROM sample_%s "
+            "WHERE proc_id IN (%s)" % (tier.name, placeholders)
+            for tier in config.TIERS))
+    params = []
+    for _ in config.TIERS:
+        params.extend(ids)
+    stats = {r[0]: r[1:] for r in conn.execute(stats_sql, params).fetchall()}
+
+    out = []
+    for pid, exe, args_sig, cmdline, is_system, app in rows:
+        stat = stats.get(pid)
+        if not stat:
+            # Interned but never sampled: nothing to show and nothing to click
+            # through to.
+            continue
+        last_ts, cpu_max, rss_max, samples = stat
+        out.append({
+            "exe": exe, "app": app or "", "cmdline": cmdline,
+            "args": args_sig, "is_system": bool(is_system),
+            "last_ts": last_ts, "cpu_max": (cpu_max or 0) / 10.0,
+            "rss_max": rss_max or 0, "samples": samples or 0,
+        })
+    # Ranked by how well the name matches first, and only then by how hard it
+    # worked. Sorting on CPU alone would answer "Arc" with whatever process
+    # was busiest that happens to mention arc in its command line, which is
+    # never what the person typing a name meant.
+    lowered = term.lower()
+
+    def rank(row):
+        name = row["exe"].lower()
+        app = (row["app"] or "").lower()
+        if name == lowered:
+            tier = 0                      # the process you named
+        elif app == lowered:
+            tier = 1                      # its helpers, which share the app
+        elif name.startswith(lowered):
+            tier = 2
+        elif app.startswith(lowered) or lowered in name or lowered in app:
+            tier = 3
+        else:
+            tier = 4                      # matched only in the command line
+        return (tier, -row["cpu_max"], -row["last_ts"])
+
+    out.sort(key=rank)
+    return out[:limit]

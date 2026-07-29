@@ -131,6 +131,10 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/live":
                 return self._send(200, json.dumps(procs.live_tree()),
                                   "application/json")
+            if parsed.path == "/api/search":
+                term = params.get("q", [""])[0]
+                found = query.search(conn, term, limit=25)
+                return self._send(200, json.dumps(found), "application/json")
             if parsed.path == "/api/backup":
                 return self._send_backup()
             self._send(404, "not found", "text/plain")

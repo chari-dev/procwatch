@@ -215,6 +215,32 @@ g.shift{will-change:transform}
 .ghost{border:1px solid var(--line);background:transparent;color:var(--ink2);
  border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer}
 .ghost:hover{border-color:var(--s1);color:var(--ink)}
+.searchbox{position:relative}
+.searchbox input{height:29px;width:190px;padding:0 26px 0 10px;font:inherit;
+ font-size:12px;color:var(--ink);background:var(--raise);border-radius:8px;
+ border:1px solid var(--line);transition:width .15s,border-color .15s}
+.searchbox input:focus{outline:0;width:260px;border-color:var(--s1)}
+.searchbox input::-webkit-search-cancel-button{display:none}
+#qhint{position:absolute;right:7px;top:6px;font-size:10px;color:var(--ink3);
+ border:1px solid var(--line);border-radius:4px;padding:1px 5px;
+ pointer-events:none;font-family:inherit}
+.searchbox input:focus + #qhint{display:none}
+#qresults{position:absolute;right:0;top:34px;width:390px;max-height:60vh;
+ overflow:auto;background:var(--bg);border:1px solid var(--line);
+ border-radius:11px;box-shadow:0 18px 44px rgba(0,0,0,.4);padding:5px;z-index:80}
+#qresults[hidden]{display:none}
+#qresults .hit{display:grid;grid-template-columns:1fr auto;gap:2px 10px;
+ padding:7px 9px;border-radius:8px;cursor:pointer;align-items:baseline}
+#qresults .hit:hover,#qresults .hit.on{background:var(--raise)}
+#qresults .hit b{font-weight:560;font-size:12.5px;color:var(--ink)}
+#qresults .hit em{font-style:normal;font-size:11px;color:var(--ink3);
+ grid-column:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#qresults .hit i{font-style:normal;font-size:11.5px;color:var(--ink2);
+ font-variant-numeric:tabular-nums}
+#qresults .hit u{text-decoration:none;font-size:10.5px;color:var(--ink3);
+ grid-column:2}
+#qresults .none{padding:11px 10px;color:var(--ink3);font-size:12px}
+#qresults .sys{opacity:.72}
 .linkbtn{display:inline-flex;align-items:center;height:29px;padding:0 11px;
  border:1px solid var(--line);border-radius:8px;background:var(--raise);
  color:var(--ink2);font-size:12px;font-weight:500;text-decoration:none;
@@ -291,6 +317,12 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
             title="Show or hide processes that are part of macOS">
       <span class="knob"></span><span id="showsyslabel">all processes</span>
     </button>
+    <div class="searchbox">
+      <input id="q" type="search" autocomplete="off" spellcheck="false"
+             placeholder="Search everything" aria-label="Search everything">
+      <kbd id="qhint">/</kbd>
+      <div id="qresults" hidden></div>
+    </div>
     <a id="inbrowser" class="linkbtn" href="/" target="_blank" rel="noopener"
        title="Open this dashboard in your browser">Open in browser</a>
     <button id="theme" title="Switch light and dark">&#9681;</button>
@@ -1637,6 +1669,133 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function (
   if (document.documentElement.getAttribute("data-theme")) { return; }
   CSS_CACHE = {};
   if (DATA) { render(); }
+});
+
+/* ---- search ------------------------------------------------------------
+   Searches everything ever recorded, not just what is on screen. The point of
+   keeping a year of history is being able to ask about a process that is not
+   running now and is not in the current window, so filtering the visible rows
+   would answer a question nobody has.
+
+   Selecting a result pins that process across every chart and, if it has not
+   been seen inside the window on screen, moves the window to when it last
+   ran -- otherwise the pin lands on a chart with nothing in it. */
+var searchTimer = null;
+var searchHits = [];
+var searchAt = -1;
+
+var closeSearch = function () {
+  var box = document.getElementById("qresults");
+  if (box) { box.hidden = true; }
+  searchAt = -1;
+};
+
+var runSearch = function (term) {
+  var box = document.getElementById("qresults");
+  if (!box) { return; }
+  if (!term.trim()) { closeSearch(); return; }
+  fetch("/api/search?q=" + encodeURIComponent(term))
+    .then(function (r) { return r.json(); })
+    .then(function (hits) {
+      searchHits = hits;
+      searchAt = -1;
+      if (!hits.length) {
+        box.innerHTML = '<div class="none">Nothing recorded matching &ldquo;' +
+          esc(term) + "&rdquo;</div>";
+        box.hidden = false;
+        return;
+      }
+      box.innerHTML = hits.map(function (h, i) {
+        var when = h.last_ts ? fmtFull(h.last_ts) : "";
+        var name = h.app && h.app !== h.exe
+          ? esc(h.exe) + ' <u style="color:var(--ink3)">in ' + esc(h.app) + "</u>"
+          : esc(h.exe);
+        return '<div class="hit' + (h.is_system ? " sys" : "") +
+          '" data-i="' + i + '"><b>' + name + "</b>" +
+          "<i>" + h.cpu_max.toFixed(0) + "% peak</i>" +
+          "<em>" + esc(h.cmdline || h.exe) + "</em>" +
+          "<u>" + esc(when) + "</u></div>";
+      }).join("");
+      box.hidden = false;
+    })
+    .catch(function () { closeSearch(); });
+};
+
+var chooseHit = function (i) {
+  var hit = searchHits[i];
+  if (!hit) { return; }
+  closeSearch();
+  var input = document.getElementById("q");
+  if (input) { input.blur(); }
+  // Applications are what the charts group by when system processes are
+  // hidden; a bare process name would match nothing in that mode.
+  var name = (!SHOW_SYSTEM && hit.app) ? hit.app : hit.exe;
+  // A system process cannot be pinned while the toggle hides it, so the
+  // toggle follows the choice rather than the choice silently failing.
+  if (hit.is_system && !SHOW_SYSTEM) {
+    SHOW_SYSTEM = true;
+    var toggle = document.getElementById("showsys");
+    if (toggle) { toggle.setAttribute("aria-pressed", "true"); }
+    name = hit.exe;
+  }
+  var end = END === null ? nowSeconds() : END;
+  var visible = hit.last_ts >= end - RANGE && hit.last_ts <= end;
+  if (!visible && hit.last_ts) {
+    // Land with the last sighting a little in from the right edge, so what
+    // led up to it is on screen rather than cut off.
+    setWindow(hit.last_ts + Math.round(RANGE * 0.15), RANGE);
+  }
+  setPinned(name);
+  load();
+};
+
+on("q", "input", function (e) {
+  var term = e.target.value;
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(function () { runSearch(term); }, 140);
+});
+on("q", "focus", function (e) { if (e.target.value.trim()) { runSearch(e.target.value); } });
+on("qresults", "mousedown", function (e) {
+  // mousedown rather than click: the input's blur would close the panel
+  // before a click ever landed.
+  var row = e.target.closest ? e.target.closest(".hit") : null;
+  if (row) { e.preventDefault(); chooseHit(parseInt(row.dataset.i, 10)); }
+});
+on("q", "keydown", function (e) {
+  if (e.key === "Escape") { closeSearch(); e.target.blur(); return; }
+  if (!searchHits.length) { return; }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    searchAt += (e.key === "ArrowDown" ? 1 : -1);
+    if (searchAt < 0) { searchAt = searchHits.length - 1; }
+    if (searchAt >= searchHits.length) { searchAt = 0; }
+    Array.prototype.forEach.call(
+      document.querySelectorAll("#qresults .hit"), function (row, i) {
+        row.classList.toggle("on", i === searchAt);
+        if (i === searchAt && row.scrollIntoView) {
+          row.scrollIntoView({block: "nearest"});
+        }
+      });
+    return;
+  }
+  if (e.key === "Enter") {
+    e.preventDefault();
+    chooseHit(searchAt >= 0 ? searchAt : 0);
+  }
+});
+document.addEventListener("mousedown", function (e) {
+  var box = document.getElementById("qresults");
+  if (box && !box.hidden && !e.target.closest(".searchbox")) { closeSearch(); }
+});
+document.addEventListener("keydown", function (e) {
+  // "/" is the search key everywhere from vi to GitHub, but only when it is
+  // not being typed into something.
+  var tag = (e.target.tagName || "").toLowerCase();
+  if (e.key === "/" && tag !== "input" && tag !== "textarea" && !e.metaKey) {
+    e.preventDefault();
+    var input = document.getElementById("q");
+    if (input) { input.focus(); input.select(); }
+  }
 });
 
 /* ---- settings ----------------------------------------------------------

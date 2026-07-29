@@ -3,7 +3,7 @@
 # project, just swiftc and a hand-written bundle.
 set -e
 cd "$(dirname "$0")"
-APP="ProcwatchBar.app"
+APP="Procwatch.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp procwatch.icns "$APP/Contents/Resources/procwatch.icns"
@@ -38,6 +38,9 @@ PLIST
 # app switcher like anything else. A running copy is quit first: replacing the
 # bundle underneath a live process leaves it running from a deleted image.
 DEST="/Applications/$APP"
+# The bundle was called ProcwatchBar.app in 1.0.0. Leaving it behind would put
+# two apps with the same icon in Launchpad, one of them stale.
+rm -rf "/Applications/ProcwatchBar.app" 2>/dev/null || true
 if [ "${PROCWATCH_NO_INSTALL:-}" = "1" ]; then
   echo "built $(pwd)/$APP (not installed)"
   exit 0
