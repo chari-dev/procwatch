@@ -2062,8 +2062,14 @@ var ALERTS = {rules: [], events: [], metrics: {}};
 var postAlert = function (body) {
   return fetch("/api/alerts", {
     method: "POST",
-    headers: {"Content-Type": "application/json",
-              "X-Procwatch": TOKEN},
+    headers: {
+      "Content-Type": "application/json",
+      // X-Procwatch is a fixed marker, not the token: it exists so the
+      // request cannot be made cross-origin without a preflight. The token
+      // is a separate header and proves same-origin script read the page.
+      "X-Procwatch": "1",
+      "X-Procwatch-Token": TOKEN
+    },
     body: JSON.stringify(body)
   }).then(function (r) { return r.json(); })
     .then(function (d) {
