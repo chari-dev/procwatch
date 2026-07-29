@@ -213,6 +213,33 @@ g.shift{will-change:transform}
 .setrow.wide small{grid-column:1}
 .setrow code{background:var(--raise);border-radius:4px;padding:1px 5px;
  font-size:11px}
+.alertadd{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+.alertadd input,.alertadd select{height:28px;padding:0 8px;font:inherit;
+ font-size:12px;color:var(--ink);background:var(--raise);border-radius:7px;
+ border:1px solid var(--line)}
+.alertadd input{width:130px}
+.alertadd input[type=number]{width:64px}
+#alsustain{width:56px}
+.rule{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;
+ color:var(--ink2);border-bottom:1px solid var(--line)}
+.rule:last-child{border-bottom:0}
+.rule b{font-weight:560;color:var(--ink)}
+.rule button{margin-left:auto;border:0;background:transparent;color:var(--ink3);
+ cursor:pointer;font-size:15px;line-height:1;padding:0 4px}
+.rule button:hover{color:var(--bad,#e05252)}
+.storagerow{display:grid;grid-template-columns:1fr 90px 1fr;gap:10px;
+ align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
+.storagerow:last-child{border-bottom:0}
+.storagerow b{font-weight:520;font-size:12.5px}
+.storagerow .amt{text-align:right;font-variant-numeric:tabular-nums;
+ font-size:12.5px;color:var(--ink)}
+.storagebar{height:8px;border-radius:99px;background:var(--line);overflow:hidden;
+ display:flex}
+.storagebar i{display:block;height:100%}
+.storagekey{display:flex;gap:14px;margin:2px 0 12px;font-size:11px;
+ color:var(--ink3)}
+.storagekey i{display:inline-block;width:8px;height:8px;border-radius:2px;
+ margin-right:5px}
 .checks{display:flex;flex-wrap:wrap;gap:8px}
 .checks label{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;
  border:1px solid var(--line);border-radius:8px;background:var(--raise);
@@ -427,6 +454,30 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
     </div>
 
     <div class="setrow wide">
+      <label>Alerts</label>
+      <div id="alertrules"><span class="hint">Loading&hellip;</span></div>
+      <div class="alertadd">
+        <input id="alpattern" placeholder="name, or * for anything" value="*">
+        <select id="almetric"></select>
+        <span class="hint">above</span>
+        <input id="althreshold" type="number" min="0" step="1" value="80">
+        <span class="hint">for</span>
+        <input id="alsustain" value="10m">
+        <button id="aladd" class="ghost">Add</button>
+      </div>
+      <small>Checked every thirty seconds by the recorder, which posts a
+        notification. The dashboard does not need to be open.</small>
+    </div>
+
+    <div class="setrow wide">
+      <label>This window</label>
+      <div class="setactions">
+        <a class="linkbtn" id="doexport" href="/api/export">Export as CSV</a>
+        <span class="hint">one row per process per interval</span>
+      </div>
+    </div>
+
+    <div class="setrow wide">
       <button id="setreset" class="ghost">Reset settings</button>
     </div>
   </div>
@@ -488,6 +539,14 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
     <h2>Free disk</h2>
     <p>Space left on the volume holding the database.</p>
     <div id="free"></div>
+  </div>
+
+  <div class="card wide" data-chart="storage" id="storagecard">
+    <h2>Disk space by application</h2>
+    <p>The bundle, its data in Application&nbsp;Support, and its caches
+      together &mdash; measured once a day, because it is a size rather than a
+      rate.</p>
+    <div id="storagebody"><div class="msg">Not measured yet.</div></div>
   </div>
 
   <div class="card wide" data-chart="activity" id="activity">
@@ -1921,6 +1980,118 @@ document.addEventListener("keydown", function (e) {
   }
 });
 
+/* ---- disk space by application ---------------------------------------- */
+var loadStorage = function () {
+  var el = document.getElementById("storagebody");
+  if (!el) { return; }
+  fetch("/api/storage").then(function (r) { return r.json(); })
+    .then(function (apps) {
+      if (!apps.length) {
+        el.innerHTML = '<div class="msg">Not measured yet &mdash; the first ' +
+          "scan runs within a day of installing.</div>";
+        return;
+      }
+      var most = apps[0].total || 1;
+      var parts = [["bundle", "--s1", "app"],
+                   ["support", "--s3", "data"],
+                   ["caches", "--s7", "caches"]];
+      el.innerHTML = '<div class="storagekey">' + parts.map(function (p) {
+        return '<span><i style="background:' + css(p[1]) + '"></i>' + p[2] +
+          "</span>";
+      }).join("") + "</div>" +
+      apps.map(function (a) {
+        return '<div class="storagerow"><b>' + esc(a.app) + "</b>" +
+          '<span class="amt">' + esc(fmtBytes(a.total / 1024)) + "</span>" +
+          '<span class="storagebar">' + parts.map(function (p) {
+            var w = a.total > 0 ? (a[p[0]] / most * 100) : 0;
+            return w > 0 ? '<i style="width:' + w.toFixed(2) + "%;background:" +
+              css(p[1]) + '" title="' + p[2] + " " +
+              esc(fmtBytes(a[p[0]] / 1024)) + '"></i>' : "";
+          }).join("") + "</span></div>";
+      }).join("");
+    })
+    .catch(function () {
+      el.innerHTML = '<div class="msg">Could not read disk usage.</div>';
+    });
+};
+
+/* ---- alerts ------------------------------------------------------------ */
+var renderAlerts = function (data) {
+  var box = document.getElementById("alertrules");
+  if (!box) { return; }
+  var metricSelect = document.getElementById("almetric");
+  if (metricSelect && !metricSelect.options.length) {
+    metricSelect.innerHTML = Object.keys(data.metrics).map(function (m) {
+      return '<option value="' + esc(m) + '">' + esc(m) + "</option>";
+    }).join("");
+  }
+  if (!data.rules.length) {
+    box.innerHTML = '<span class="hint">No rules. Nothing will be reported.</span>';
+    return;
+  }
+  box.innerHTML = data.rules.map(function (r) {
+    var unit = (data.metrics[r.metric] || {}).unit || "";
+    return '<div class="rule"><b>' + esc(r.pattern) + "</b> " +
+      esc(r.metric) + " above " + r.threshold + esc(unit) + " for " +
+      esc(fmtDuration(r.sustain)) +
+      '<button data-rule="' + r.id + '" title="Remove">&times;</button></div>';
+  }).join("");
+};
+
+var fmtDuration = function (seconds) {
+  if (seconds >= 3600) { return (seconds / 3600).toFixed(seconds % 3600 ? 1 : 0) + "h"; }
+  if (seconds >= 60) { return Math.round(seconds / 60) + "m"; }
+  return seconds + "s";
+};
+
+var parseDuration = function (text) {
+  var m = /^([\d.]+)\s*([smh]?)$/i.exec(String(text).trim());
+  if (!m) { return null; }
+  var n = parseFloat(m[1]);
+  var mult = {s: 1, m: 60, h: 3600}[(m[2] || "s").toLowerCase()];
+  return Math.round(n * mult);
+};
+
+var loadAlerts = function () {
+  return fetch("/api/alerts").then(function (r) { return r.json(); })
+    .then(function (d) { ALERTS = d; renderAlerts(d); return d; })
+    .catch(function () {});
+};
+var ALERTS = {rules: [], events: [], metrics: {}};
+
+var postAlert = function (body) {
+  return fetch("/api/alerts", {
+    method: "POST",
+    headers: {"Content-Type": "application/json",
+              "X-Procwatch": TOKEN},
+    body: JSON.stringify(body)
+  }).then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d && d.error) { toast(d.error, true); return; }
+      loadAlerts();
+    })
+    .catch(function () { toast("Could not change the rule", true); });
+};
+
+on("aladd", "click", function () {
+  var sustain = parseDuration(document.getElementById("alsustain").value);
+  if (sustain === null) {
+    toast("Give a duration like 30s, 10m or 2h", true);
+    return;
+  }
+  postAlert({
+    action: "add",
+    pattern: document.getElementById("alpattern").value.trim() || "*",
+    metric: document.getElementById("almetric").value,
+    threshold: parseFloat(document.getElementById("althreshold").value),
+    sustain: sustain
+  });
+});
+on("alertrules", "click", function (e) {
+  var button = e.target.closest ? e.target.closest("button[data-rule]") : null;
+  if (button) { postAlert({action: "remove", id: parseInt(button.dataset.rule, 10)}); }
+});
+
 /* ---- settings ----------------------------------------------------------
    Kept in localStorage rather than on the server: they describe how one
    person likes to look at the data, not anything about the machine, and the
@@ -1930,7 +2101,8 @@ var CHARTS = [
   {id: "energy", name: "Energy"}, {id: "net", name: "Network"},
   {id: "disk", name: "Disk"}, {id: "busy", name: "System CPU"},
   {id: "load", name: "Load"}, {id: "swap", name: "Swap"},
-  {id: "free", name: "Free disk"}, {id: "activity", name: "Activity"}
+  {id: "free", name: "Free disk"}, {id: "storage", name: "Disk space"},
+  {id: "activity", name: "Activity"}
 ];
 var DEFAULTS = {range: 86400, limit: 12, height: 250, live: 2000, hidden: []};
 var SETTINGS = (function () {
@@ -1981,6 +2153,14 @@ var openSettings = function (open) {
     return '<label><input type="checkbox" data-chart-toggle="' + c.id + '"' +
       (isHidden(c.id) ? "" : " checked") + ">" + esc(c.name) + "</label>";
   }).join("");
+  var exporter = document.getElementById("doexport");
+  if (exporter) {
+    var end = END === null ? nowSeconds() : END;
+    exporter.href = "/api/export?start=" + (end - RANGE) + "&end=" + end +
+      "&limit=" + SETTINGS.limit +
+      "&scope=" + (SHOW_SYSTEM ? "all" : "apps");
+  }
+  loadAlerts();
   var size = document.getElementById("dbsize");
   if (size && META && META.db_bytes) {
     size.textContent = fmtBytes(META.db_bytes / 1024) + " on disk";
@@ -2384,7 +2564,7 @@ var renderLive = function () {
       }).join("");
     }).join("") + "</table>" +
     (hidden > 0
-      ? '<div class="hiddennote">Showing ' + visible.length +
+      ? '<div class="hiddennote">Showing ' + groups.length +
         " applications. " + hidden +
         " other process groups \u2014 daemons, helpers, command line tools \u2014" +
         " are folded in or hidden.</div>"
@@ -2437,17 +2617,30 @@ var loadLive = function () {
   fetch("/api/now").then(function (r) { return r.json(); }).then(function (d) {
     NOW = d;
     LIVE = d.groups || [];
-    renderLive();
-    renderSummary();
+    // A fault in the drawing is not a fault in the reading. Reporting one as
+    // the other sent me looking at the sampler for a bug that was a typo in
+    // this file -- the same trap the history charts were taught to avoid.
+    try {
+      renderLive();
+      renderSummary();
+    } catch (err) {
+      document.getElementById("livebody").innerHTML =
+        '<div class="msg">Could not draw the process list: ' +
+        esc(err && err.message) + "</div>";
+      throw err;
+    }
     var age = document.getElementById("liveage");
     if (age) {
       age.textContent = d.warming_up
         ? "measuring\u2026"
         : d.interval.toFixed(1) + "s window";
     }
-  }).catch(function () {
-    document.getElementById("livebody").innerHTML =
-      '<div class="msg">Could not read the process list.</div>';
+  }).catch(function (err) {
+    var el = document.getElementById("livebody");
+    if (el && el.innerHTML.indexOf("Could not draw") === -1) {
+      el.innerHTML = '<div class="msg">Could not read the process list. ' +
+        esc(err && err.message ? err.message : err) + "</div>";
+    }
   });
 };
 
@@ -2526,6 +2719,7 @@ applyChartVisibility();
 load();
 loadLive();
 loadPorts();
+loadStorage();
 // Half the sample interval, so a new row reaches the screen within about
 // fifteen seconds of being written rather than up to a full interval later.
 setInterval(pollForNewData, 15000);

@@ -19,7 +19,8 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Dependency order: a module may only import ones already inlined above it.
 MODULES = [
     "config", "identity", "psreader", "rusage", "netstat", "system",
-    "db", "archive", "sampler", "rollup", "procs", "live", "query", "server",
+    "db", "archive", "alerts", "storage", "sampler", "rollup", "procs",
+    "live", "query", "server",
     "launchd", "main", "cli",
 ]
 

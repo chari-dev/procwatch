@@ -1,11 +1,11 @@
-"""procwatch install | open | serve | record | backup | restore | watch |
+"""procwatch install | open | serve | record | backup | restore | alert |
 status | uninstall"""
 import argparse
 import os
 import sys
 import time
 
-from . import archive, config, db, launchd
+from . import alerts, archive, config, db, launchd
 
 
 def _status():
@@ -61,15 +61,48 @@ def _restore(path, assume_yes):
     return 0
 
 
-def _watch(pattern):
+def _alert(args):
+    """Add, list or remove a rule.
+
+    This command used to write to a `watchlist` table that nothing ever read.
+    It has been a no-op in every release; now it does what its name promised.
+    """
     config.ensure_dirs()
     conn = db.connect(config.DB_PATH)
     db.init_schema(conn)
-    with conn:
-        conn.execute("INSERT OR REPLACE INTO watchlist (pattern, added_ts) VALUES (?,?)",
-                     (pattern, int(time.time())))
-    print("watching %s" % pattern)
+    alerts.init(conn)
+    try:
+        if args.remove is not None:
+            if not alerts.remove(conn, args.remove):
+                print("no rule with id %d" % args.remove, file=sys.stderr)
+                return 1
+        elif args.pattern is not None:
+            alerts.add(conn, args.pattern, args.metric, args.threshold,
+                       args.sustain)
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        return 1
+    current = alerts.rules(conn)
+    if not current:
+        print("no rules. Add one:\n"
+              "  procwatch alert '*' --metric cpu --above 80 --for 10m")
+        return 0
+    for rule in current:
+        print("%-4d %-20s %-7s above %g%s for %s%s"
+              % (rule["id"], rule["pattern"], rule["metric"], rule["threshold"],
+                 alerts.METRICS[rule["metric"]]["unit"],
+                 alerts._duration(rule["sustain"]),
+                 "" if rule["enabled"] else "  (disabled)"))
     return 0
+
+
+def _duration_arg(text):
+    """"10m", "2h", "45s" or bare seconds -- because nobody thinks in seconds."""
+    text = str(text).strip().lower()
+    units = {"s": 1, "m": 60, "h": 3600}
+    if text and text[-1] in units:
+        return int(float(text[:-1]) * units[text[-1]])
+    return int(float(text))
 
 
 def main(argv=None):
@@ -95,8 +128,16 @@ def main(argv=None):
     loader.add_argument("path")
     loader.add_argument("--yes", action="store_true",
                         help="skip the confirmation prompt")
-    watcher = sub.add_parser("watch")
-    watcher.add_argument("pattern")
+    alerter = sub.add_parser("alert")
+    alerter.add_argument("pattern", nargs="?",
+                         help="process or application name, or * for anything")
+    alerter.add_argument("--metric", default="cpu",
+                         choices=sorted(alerts.METRICS))
+    alerter.add_argument("--above", dest="threshold", type=float, default=80.0)
+    alerter.add_argument("--for", dest="sustain", type=_duration_arg,
+                         default="10m",
+                         help="how long it must hold: 30s, 10m, 2h")
+    alerter.add_argument("--remove", type=int, metavar="ID")
 
     args = parser.parse_args(argv)
     if args.command == "install":
@@ -118,8 +159,8 @@ def main(argv=None):
         return 0
     if args.command == "restore":
         return _restore(args.path, args.yes)
-    if args.command == "watch":
-        return _watch(args.pattern)
+    if args.command == "alert":
+        return _alert(args)
     if args.command == "record":
         from . import main as recorder
         return recorder.run_once()

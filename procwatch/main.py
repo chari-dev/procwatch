@@ -10,8 +10,8 @@ import sys
 import time
 import traceback
 
-from . import (config, db, identity, netstat, psreader, rollup, rusage,
-               sampler, system)
+from . import (alerts, config, db, identity, netstat, psreader, rollup,
+               rusage, sampler, storage, system)
 
 
 def _log(message):
@@ -62,6 +62,23 @@ def run_once(now=None):
                      identity.classify(procs), identity.apps(procs))
         rollup.run(conn, now)
         rollup.disk_guard(conn, now, system.free_bytes())
+        # Rules are checked against the rows just written. A rule that cannot
+        # be evaluated must not cost the tick its sample, which is the only
+        # thing here that cannot be recovered later.
+        try:
+            for event in alerts.evaluate(conn, now):
+                alerts.notify(event)
+        except Exception as error:
+            _log("alert evaluation failed: %s" % error)
+        # Disk usage is a size, not a rate: it moves once a week and costs a
+        # filesystem walk to measure, so it runs once a day. Last, so a slow
+        # walk cannot delay the sample -- that is already written and
+        # committed by this point.
+        try:
+            if storage.due(conn):
+                storage.scan(conn)
+        except Exception as error:
+            _log("storage scan failed: %s" % error)
         return 0
     except Exception as error:
         _log("write failed: %s" % error)

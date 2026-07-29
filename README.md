@@ -110,6 +110,26 @@ show each match's peak CPU and when it was last seen; choosing one pins it
 across every chart, and moves the window to when it last ran if that was
 outside the range you are looking at.
 
+**Alerts** live in settings. A rule is a name, a metric, a threshold and how
+long it has to hold — `Arc`, CPU, above 80%, for 10 minutes. Sustain is not
+optional: a compiler starting up hits 100% for one sample, and alerting on
+that is the noise that makes people turn alerts off. The recorder checks them
+every thirty seconds and posts a notification; the dashboard does not need to
+be open. From a terminal:
+
+```sh
+python3 procwatch.py alert '*' --metric cpu --above 80 --for 10m
+python3 procwatch.py alert --remove 1
+```
+
+**Disk space by application** is measured once a day — it is a size, not a
+rate — and counts the bundle, its data in Application Support, and its caches
+together. That last part is usually the answer: an app's download size is
+rarely what is filling the disk.
+
+**Export as CSV** in settings writes the window on screen, one row per process
+per interval.
+
 **The gear** opens settings: how much time the charts show, how many
 processes each one ranks, chart height, how often the live table refreshes,
 and which charts appear at all. Settings live in your browser, not on the
@@ -134,6 +154,7 @@ Every 30 seconds, per application:
 | **Energy** | as macOS bills it, shown as a share |
 | **Battery** | charge, draw, and capacity |
 | **Ports** | what is listening, and which process holds it |
+| **Disk space** | per application, once a day: bundle, data and caches |
 
 Plus system-wide load, memory pressure, swap, free disk, and a calendar grid
 of when the machine is busy by hour of day.

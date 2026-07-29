@@ -17,7 +17,8 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import archive, config, db, live, netstat, procs, query, system
+from . import (alerts, archive, config, db, live, netstat, procs, query,
+               storage, system)
 
 IDLE_TIMEOUT = 900
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -34,6 +35,19 @@ def _token_of(server):
         token = secrets.token_urlsafe(24)
         server.token = token
     return token
+
+
+def _csv(text):
+    """One CSV field.
+
+    Process names contain commas ("Arc Helper (Renderer), v2") and quotes, and
+    a spreadsheet reading an unescaped one silently shifts every column after
+    it -- which looks like data rather than damage.
+    """
+    text = "" if text is None else str(text)
+    if any(c in text for c in ',"\n\r'):
+        return '"' + text.replace('"', '""') + '"'
+    return text
 
 
 def _seconds(value):
@@ -131,6 +145,16 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/live":
                 return self._send(200, json.dumps(procs.live_tree()),
                                   "application/json")
+            if parsed.path == "/api/storage":
+                return self._send(200, json.dumps(storage.usage(conn, limit=30)),
+                                  "application/json")
+            if parsed.path == "/api/alerts":
+                return self._send(200, json.dumps({
+                    "rules": alerts.rules(conn),
+                    "events": alerts.recent(conn, limit=40),
+                    "metrics": alerts.METRICS}), "application/json")
+            if parsed.path == "/api/export":
+                return self._send_export(conn, params)
             if parsed.path == "/api/search":
                 term = params.get("q", [""])[0]
                 found = query.search(conn, term, limit=25)
@@ -180,7 +204,7 @@ class Handler(BaseHTTPRequestHandler):
         return None
 
     def do_POST(self):
-        """The only mutating endpoint: signal a process.
+        """The mutating endpoints: signal a process, and change alert rules.
 
         Restricted to processes the calling user owns, which is also all the
         kernel would permit without privilege. The check is here so the
@@ -189,12 +213,17 @@ class Handler(BaseHTTPRequestHandler):
         """
         self.server.last_seen = time.time()
         parsed = urlparse(self.path)
-        if parsed.path != "/api/kill":
+        if parsed.path not in ("/api/kill", "/api/alerts"):
             return self._send(404, "not found", "text/plain")
+        # Same guard for both. Changing a rule is far less dangerous than
+        # signalling a process, but a page on another origin still has no
+        # business silencing someone's alerts.
         refusal = self._reject_cross_origin()
         if refusal:
             return self._send(403, json.dumps({"ok": False, "error": refusal}),
                               "application/json")
+        if parsed.path == "/api/alerts":
+            return self._change_alert()
         try:
             length = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(length) or b"{}")
@@ -207,6 +236,35 @@ class Handler(BaseHTTPRequestHandler):
         code = 200 if result["ok"] else 400
         self._send(code, json.dumps(result), "application/json")
 
+    def _change_alert(self):
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            return self._send(400, json.dumps({"error": "malformed request"}),
+                              "application/json")
+        conn = db.connect(config.DB_PATH)
+        try:
+            action = body.get("action")
+            if action == "add":
+                alerts.add(conn, str(body.get("pattern") or "*"),
+                           str(body.get("metric") or "cpu"),
+                           float(body.get("threshold", 80)),
+                           int(body.get("sustain", 600)))
+            elif action == "remove":
+                alerts.remove(conn, int(body["id"]))
+            else:
+                return self._send(400, json.dumps({"error": "unknown action"}),
+                                  "application/json")
+            return self._send(200, json.dumps({"ok": True,
+                                               "rules": alerts.rules(conn)}),
+                              "application/json")
+        except (ValueError, KeyError, TypeError) as error:
+            return self._send(400, json.dumps({"error": str(error)}),
+                              "application/json")
+        finally:
+            conn.close()
+
     def do_OPTIONS(self):
         """Refuse preflight explicitly.
 
@@ -215,6 +273,46 @@ class Handler(BaseHTTPRequestHandler):
         rather than left to the base class's 501.
         """
         self._send(403, "cross-origin requests are not served", "text/plain")
+
+    def _send_export(self, conn, params):
+        """The window on screen as CSV.
+
+        The backup is the whole database in SQLite's own format, which is the
+        right thing for keeping and the wrong thing for a spreadsheet. This is
+        one row per process per bucket over one window -- what you would paste
+        into a spreadsheet to ask a question this dashboard does not answer.
+        """
+        end = _seconds(params.get("end", [time.time()])[0])
+        start = _seconds(params.get("start", [end - 86400])[0])
+        scope = params.get("scope", ["all"])[0]
+        limit = max(1, min(60, int(params.get("limit", [12])[0])))
+        data = query.series(conn, start, end, limit=limit, scope=scope)
+        lines = ["time,process,application,cpu_avg_percent,cpu_max_percent,"
+                 "memory_bytes,processes,net_in_bytes,net_out_bytes,"
+                 "disk_read_bytes,disk_write_bytes"]
+        for series in data["series"]:
+            name = series["exe"]
+            app = series.get("app", "")
+            for point in series["points"]:
+                lines.append(",".join([
+                    time.strftime("%Y-%m-%d %H:%M:%S",
+                                  time.localtime(point["ts"])),
+                    _csv(name), _csv(app),
+                    "%.2f" % point["cpu_avg"], "%.2f" % point["cpu_max"],
+                    "%d" % int(point["rss_avg"] * 1024),
+                    "%d" % point["nproc"],
+                    "%d" % point["net_in"], "%d" % point["net_out"],
+                    "%d" % point["disk_read"], "%d" % point["disk_write"]]))
+        body = ("\n".join(lines) + "\n").encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/csv; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Disposition",
+                         'attachment; filename="procwatch-%s.csv"'
+                         % time.strftime("%Y-%m-%d-%H%M", time.localtime(end)))
+        self.send_header("Cache-Control", "no-store, must-revalidate")
+        self.end_headers()
+        self.wfile.write(body)
 
     def _send_backup(self):
         """A consistent snapshot of the database, as a download.

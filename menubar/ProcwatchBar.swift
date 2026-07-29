@@ -9,6 +9,7 @@
 // project's no-third-party-dependencies rule.
 
 import AppKit
+import ServiceManagement
 import WebKit
 
 let defaultPort = 8790
@@ -182,12 +183,45 @@ final class Controller: NSObject, NSApplicationDelegate, NSPopoverDelegate,
         let menu = NSMenu()
         menu.addItem(withTitle: "Open in browser", action: #selector(openBrowser),
                      keyEquivalent: "").target = self
+        if #available(macOS 13.0, *) {
+            let item = menu.addItem(withTitle: "Open at login",
+                                    action: #selector(toggleLaunchAtLogin),
+                                    keyEquivalent: "")
+            item.target = self
+            item.state = launchesAtLogin ? .on : .off
+        }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Procwatch", action: #selector(quit),
                      keyEquivalent: "q").target = self
         statusItem.menu = menu
         sender.performClick(nil)
         statusItem.menu = nil   // restore left-click-opens-panel behaviour
+    }
+
+    /// Whether macOS launches this at login.
+    ///
+    /// The recorder already survives a restart -- launchd owns it -- but the
+    /// menu bar icon did not, so after every reboot the app was gone until it
+    /// was opened by hand. SMAppService registers the bundle itself, which
+    /// needs no helper and no login-item shim.
+    var launchesAtLogin: Bool {
+        if #available(macOS 13.0, *) {
+            return SMAppService.mainApp.status == .enabled
+        }
+        return false
+    }
+
+    @objc func toggleLaunchAtLogin() {
+        guard #available(macOS 13.0, *) else { return }
+        do {
+            if SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
+            } else {
+                try SMAppService.mainApp.register()
+            }
+        } catch {
+            NSLog("procwatch: could not change the login item: \(error)")
+        }
     }
 
     @objc func openBrowser() {
