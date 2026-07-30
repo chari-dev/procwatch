@@ -38,6 +38,14 @@ uninstall() {
     # 1.0.0 installed the bundle as ProcwatchBar.app. An upgrade would
     # otherwise leave a stale second copy in /Applications and Launchpad.
     rm -rf "/Applications/ProcwatchBar.app"
+    # Only a symlink pointing at our own file. Never a real file that happens
+    # to share the name: somebody else's `procwatch` is not ours to delete.
+    for dir in "$HOME/.local/bin" /usr/local/bin /opt/homebrew/bin; do
+        link="$dir/procwatch"
+        if [ -L "$link" ] && [ "$(readlink "$link")" = "$TARGET" ]; then
+            rm -f "$link" && say "removed $link"
+        fi
+    done
     rm -rf "$APP_SUPPORT" && say "program removed"
     # The sampler log is diagnostics, not history, so it goes with the program.
     rm -rf "$HOME/.local/state/procwatch" && say "logs removed"
@@ -94,6 +102,39 @@ fi
 chmod +x "$TARGET"
 say "installed $TARGET"
 
+# 1b. The name. Everything -- this installer, the README, the dashboard, the
+#     website -- tells people to run `procwatch why` and `procwatch share`, and
+#     until now nothing ever created that command. The file already carries a
+#     python3 shebang and is executable, so a symlink is the whole job.
+#
+#     Into the first directory that is BOTH already on PATH and writable without
+#     sudo. ~/.local/bin is first because it belongs to the user; Homebrew's bin
+#     comes last because it is Homebrew's to manage and `brew doctor` complains
+#     about foreign files in it.
+link_command() {
+    for dir in "$HOME/.local/bin" /usr/local/bin /opt/homebrew/bin; do
+        case ":$PATH:" in *":$dir:"*) ;; *) continue ;; esac
+        [ -d "$dir" ] && [ -w "$dir" ] || continue
+        if ln -sf "$TARGET" "$dir/procwatch" 2>/dev/null; then
+            say "procwatch command at $dir/procwatch"
+            return 0
+        fi
+    done
+    # Nothing on PATH can be written to. Put it in the conventional place and
+    # say the one line that fixes it, rather than leaving the command missing
+    # and every instruction in the documentation wrong.
+    mkdir -p "$HOME/.local/bin"
+    if ln -sf "$TARGET" "$HOME/.local/bin/procwatch" 2>/dev/null; then
+        say "procwatch command at $HOME/.local/bin/procwatch"
+        say "that directory is not on your PATH yet. To fix it:"
+        say "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc"
+    else
+        say "could not create a procwatch command; run it as:"
+        say "  python3 \"$TARGET\""
+    fi
+}
+link_command
+
 # 2. The recorder. Its plist names this interpreter and this path, so
 #    reinstalling after a Python upgrade is the fix if it ever stops.
 python3 "$TARGET" install >/dev/null
@@ -127,9 +168,11 @@ cat <<EOF
 
 Done. The recorder is running and will keep running across restarts.
 
-  Dashboard      python3 "$TARGET" open
-  What is stored python3 "$TARGET" status
-  Remove it      sh $HERE/install.sh --uninstall
+  Why was it slow?   procwatch why
+  What is this?      procwatch what mds_stores
+  Dashboard          procwatch open
+  A phone or Mac     procwatch share
+  Remove it          sh $HERE/install.sh --uninstall
 
 Charts fill in as samples accumulate; give it a few minutes.
 EOF

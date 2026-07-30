@@ -90,10 +90,19 @@ def snapshot():
                 cpu = (delta_cs / 100.0) / dt * 100.0
 
         cur, old = counters.get(proc.pid), prev_counters.get(proc.pid)
-        read_rate = write_rate = 0.0
+        read_rate = write_rate = power = 0.0
         if usable and cur and old:
             read_rate = max(0, cur[0] - old[0]) / dt
             write_rate = max(0, cur[1] - old[1]) / dt
+            # Energy is a cumulative counter like the disk ones, and it was
+            # being reported raw: a process that had been running for a week
+            # showed a bigger number than one melting a core right now, and
+            # sorting by the column sorted by age. As a rate it is power, which
+            # is the question anybody reading that column is asking.
+            #
+            # ri_billed_energy is nanojoules, so nanojoules per second is
+            # nanowatts, and a millionth of that is milliwatts.
+            power = max(0, cur[4] - old[4]) / dt / 1e6
 
         exe, sig = identity.derive(proc.comm, proc.command)
         entry = groups.setdefault((exe, sig), {
@@ -112,8 +121,7 @@ def snapshot():
         entry["ports"].extend(ports.get(proc.pid, []))
         entry["disk_read"] += read_rate
         entry["disk_write"] += write_rate
-        if cur:
-            entry["energy"] += cur[4]
+        entry["energy"] += power
         seen = net.get(proc.pid)
         if seen:
             entry["net_in"] += seen[0]

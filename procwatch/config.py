@@ -2,6 +2,16 @@
 import collections
 import os
 
+# The one place the version is written down.
+#
+# The menu bar bundle used to declare 1.0 in a heredoc in build.sh, and it had
+# said 1.0 through four releases. Procwatch therefore could not see its own
+# updates -- it reads CFBundleShortVersionString, that string never moved, and
+# by its own correct rule an application whose declared version has not changed
+# has not updated. The tool that reports on what your applications do after an
+# update was blind to exactly one application: itself.
+VERSION = "1.4.0"
+
 Tier = collections.namedtuple("Tier", "name seconds retain_seconds")
 
 INTERVAL = 30  # seconds between samples; must equal the launchd StartInterval

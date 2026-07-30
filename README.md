@@ -6,7 +6,9 @@
 right now, then forgets. Procwatch remembers — so you can ask what ate the CPU
 at 3am last Tuesday and get an answer.
 
-![Procwatch: installing it, then the dashboard](docs/images/dashboard.gif)
+**[Website](https://chari-dev.github.io/procwatch/)** · [Install](#install) · [GitHub](https://github.com/chari-dev/procwatch)
+
+![Procwatch: installing it, then the dashboard](docs/images/hero.gif)
 
 No dependencies. macOS and Python 3.9+, nothing else. Around 110 MB of disk
 once it settles, and it never grows past that.
@@ -45,7 +47,7 @@ Only the menu bar app needs developer tools: it is compiled on your machine,
 which is what keeps it out of Gatekeeper's quarantine — a downloaded unsigned
 app is refused outright. Without `swiftc` the installer says so and carries on;
 you still get the recorder and the dashboard, and can add the app later with
-`python3 procwatch.py app`. Pass `--no-app` to skip it deliberately.
+`procwatch app`. Pass `--no-app` to skip it deliberately.
 
 **Remove it**, keeping everything recorded so far:
 
@@ -64,10 +66,10 @@ inlined, and the only file the installer actually installs. Take it from the
 copy it anywhere with a Mac and a Python:
 
 ```sh
-python3 procwatch.py install    # record every 30 seconds
-python3 procwatch.py open       # dashboard in a browser
-python3 procwatch.py status     # what is stored
-python3 procwatch.py app        # build and install the menu bar app
+procwatch install    # record every 30 seconds
+procwatch open       # dashboard in a browser
+procwatch status     # what is stored
+procwatch app        # build and install the menu bar app
 ```
 
 Refer to it by full path if you move it. The scheduled job records where it
@@ -110,7 +112,7 @@ process group the recorder tracks, daemons included.
 **Other Macs.** On the machine you want to watch:
 
 ```sh
-python3 procwatch.py share
+procwatch share
 ```
 
 It prints three words. On the machine doing the watching, open settings, type
@@ -118,7 +120,7 @@ that machine's address and the three words, and it appears in the switcher
 beside the time range. Or from a terminal:
 
 ```sh
-python3 procwatch.py peer add laptop 192.168.1.42 --key left-gift-wife
+procwatch peer add laptop 192.168.1.42 --key left-gift-wife
 ```
 
 That port is **read-only**, and not because a setting says so: it has no route
@@ -146,6 +148,45 @@ the clock of whichever machine is being asked.
 Macs only. The recorder reads `proc_pid_rusage`, `nettop`, `vm_stat` and
 `ioreg`, so a Linux box would need a second sampler that does not exist yet.
 
+**The verdict, at the top.** Not a chart — a sentence. "Spotlight was
+rebuilding its search index; it has finished; nothing to do." Every finding
+carries the numbers it came from, and it will say your Mac was fine, because a
+diagnosis that always finds a culprit is a horoscope.
+
+```sh
+procwatch why                 # what happened in the last hour
+procwatch why --at 02:40      # what happened at twenty to three
+procwatch why --for 1d
+```
+
+**Sleep and battery.** What woke your Mac, how often, and what the lid being
+shut cost. Read from the power log, which macOS keeps whether or not anything
+is watching — so the first answer arrives before this has recorded anything
+itself. Assertions are watched continuously, so "what is stopping it sleeping
+right now" is exact rather than sampled.
+
+```sh
+procwatch sleep
+```
+
+**After an update.** Each application's version is recorded, so its usage
+before an update can be compared with after: "Arc uses 2.4× more CPU since
+1.158.0". Nothing else can do this, because nothing else kept the history.
+Only differences large enough to mean something are reported, and improvements
+are reported too.
+
+```sh
+procwatch updates
+```
+
+**Where the disk went.** Sizes are measured once a day and kept, so the
+question is not "what is big" but "what grew": *18 GB more used this week;
+Claude data +11 GB*.
+
+```sh
+procwatch growth
+```
+
 **Press `/`** to search everything ever recorded — not just what is on
 screen. Type a process, an application, or part of a command line. Results
 show each match's peak CPU and when it was last seen; choosing one pins it
@@ -160,12 +201,24 @@ every thirty seconds and posts a notification; the dashboard does not need to
 be open. From a terminal:
 
 ```sh
-python3 procwatch.py alert '*' --metric cpu --above 80 --for 10m
-python3 procwatch.py alert --remove 1
+procwatch alert '*' --metric cpu --above 80 --for 10m
+procwatch alert --remove 1
 ```
 
+**From a phone or tablet** on the same network, run `procwatch share` and open
+the address it prints — `http://192.168.4.50:8791/?key=three-words`. It is the
+same dashboard, marked read-only: every control that acts on a machine is
+hidden, because nothing behind them exists on that port. Settings shows the
+link.
+
+A hosted page cannot do this. A browser refuses to let an HTTPS page read a
+plain-HTTP private address — it is a Mixed Content block, not something a
+header can permit — so the page has to come from the Mac that has the data.
+(`localhost` is exempt from that rule, which is why tools that only ever talk
+to `127.0.0.1` can be hosted elsewhere. A phone cannot use that exemption.)
+
 **Your sharing key** is in settings, and from a terminal with
-`python3 procwatch.py key`. `--new` makes a fresh one, which every device you
+`procwatch key`. `--new` makes a fresh one, which every device you
 have already set up will then need.
 
 **Disk space by application** is measured once a day — it is a size, not a
@@ -227,8 +280,8 @@ six-hour bucket a year later, and still names the minute it peaked.
 ### Backup and restore
 
 ```sh
-python3 procwatch.py backup ~/Documents     # dated file in that directory
-python3 procwatch.py restore <file>
+procwatch backup ~/Documents     # dated file in that directory
+procwatch restore <file>
 ```
 
 Or **Download a backup** in settings.

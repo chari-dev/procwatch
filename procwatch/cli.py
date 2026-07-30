@@ -1,12 +1,14 @@
-"""procwatch install | open | serve | record | share | key | peer | app |
-backup | restore | alert | status | uninstall"""
+"""procwatch why | sleep | growth | updates | install | open | serve | record |
+share | key | peer | app | backup | restore | alert | status | uninstall"""
 import argparse
 import json
 import os
 import sys
 import time
 
-from . import alerts, appbuild, archive, config, db, launchd, peers, share
+from . import (alerts, appbuild, archive, config, db, diagnose, events,
+               knowledge, launchd, peers, power, prefs, query, share,
+               storage, versions)
 
 
 def _status():
@@ -161,6 +163,339 @@ def _alert(args):
     return 0
 
 
+def _span(text):
+    """"30m", "2h", "1d" or bare seconds."""
+    text = str(text).strip().lower()
+    units = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+    if text and text[-1] in units:
+        return int(float(text[:-1]) * units[text[-1]])
+    return int(float(text))
+
+
+def _at(text, now):
+    """A time to look at. "14:32" means today at that time."""
+    text = (text or "").strip()
+    if not text:
+        return now
+    if ":" in text:
+        parts = [int(p) for p in text.split(":")]
+        today = time.localtime(now)
+        wanted = time.struct_time((today.tm_year, today.tm_mon, today.tm_mday,
+                                   parts[0], parts[1] if len(parts) > 1 else 0,
+                                   parts[2] if len(parts) > 2 else 0,
+                                   0, 0, -1))
+        stamp = int(time.mktime(wanted))
+        # A time later than now means yesterday: "why was it slow at 23:40"
+        # asked over breakfast is about last night.
+        return stamp - 86400 if stamp > now else stamp
+    return int(float(text))
+
+
+def _why(args):
+    conn = db.connect(config.DB_PATH)
+    try:
+        now = int(time.time())
+        end = _at(args.at, now)
+        span = _span(args.span)
+        result = diagnose.explain(conn, end - span, end, now=now)
+    finally:
+        conn.close()
+    when = "%s to %s" % (time.strftime("%H:%M", time.localtime(result["start"])),
+                         time.strftime("%H:%M", time.localtime(result["end"])))
+    print("\n%s\n%s\n" % (result["verdict"], when))
+    if not result["findings"]:
+        return 0
+    for finding in result["findings"]:
+        mark = {"cause": "!", "cost": "-", "note": " "}.get(finding["severity"], " ")
+        print(" %s %s" % (mark, finding["headline"]))
+        for line in _wrap(finding["detail"], 74):
+            print("     %s" % line)
+        if finding["advice"]:
+            for line in _wrap("-> " + finding["advice"], 74):
+                print("     %s" % line)
+        print()
+    return 0
+
+
+def _findings(args):
+    """`procwatch findings` -- and whether to be told about them.
+
+    The settings live in the database rather than in the browser because the
+    thing that acts on them is the recorder, and a launchd agent cannot read a
+    browser's storage.
+    """
+    conn = db.connect(config.DB_PATH)
+    try:
+        prefs.init(conn)
+        if args.off or args.on:
+            was = prefs.findings_on(conn)
+            prefs.set(conn, "findings_enabled", "0" if args.off else "1")
+            if was and args.off:
+                diagnose.forget_findings(conn)
+        if args.notify:
+            prefs.set(conn, "findings_notify", args.notify)
+        state = prefs.all_prefs(conn)
+        if not args.off and not args.on and not args.notify:
+            # Nothing to change: show what happened, which is the question
+            # somebody typing this without arguments is asking.
+            now = int(time.time())
+            found = diagnose.explain(conn, now - _span(args.span), now, now=now)
+            print("\n%s\n" % found["verdict"])
+            for finding in found["findings"]:
+                mark = {"cause": "!", "cost": "-"}.get(finding["severity"], " ")
+                print(" %s %s" % (mark, finding["headline"]))
+            if found["findings"]:
+                print()
+    finally:
+        conn.close()
+
+    print("  working out what happened: %s"
+          % ("on" if state["findings_enabled"] == "1" else "off"))
+    print("  notifications: %s" % {
+        "off": "none",
+        "causes": "only findings that name a likely cause",
+        "all": "every finding worth reporting",
+    }[state["findings_notify"]])
+    return 0
+
+
+def _events(args):
+    """`procwatch events` -- what has happened, not what has been measured.
+
+    Ordered by what a person would ask in sequence: the paragraph, then the
+    things that keep happening, then the things that have never happened
+    before, then the incidents themselves. The raw timeline is last and behind
+    a flag, because a list of four hundred events is the thing this exists to
+    save somebody from reading.
+    """
+    conn = db.connect(config.DB_PATH)
+    try:
+        now = int(time.time())
+        end, span = now, _span(args.span)
+        events.init(conn)
+        if events.due(conn, now, every=60):
+            events.collect(conn, now)
+        digest = events.digest(conn, end - span, end)
+        line = events.timeline(conn, end - span, end, limit=200) if args.all else []
+    finally:
+        conn.close()
+
+    print("\n%s\n" % "\n".join(_wrap(digest["summary"], 74)))
+
+    if digest["patterns"]:
+        print("  Keeps happening")
+        for pattern in digest["patterns"]:
+            print("   %s" % pattern["headline"])
+            for text in _wrap(events.describe_pattern(pattern, now), 70):
+                print("     %s" % text)
+        print()
+
+    if digest["firsts"]:
+        print("  First time")
+        for row in digest["firsts"]:
+            print("   %s  %s" % (
+                time.strftime("%d %b %H:%M", time.localtime(row["ts"])),
+                row["headline"]))
+        print()
+
+    if digest["episodes"]:
+        print("  Incidents")
+        for group in digest["episodes"][:12]:
+            mark = {"fault": "!", "cost": "-", "change": "+"}.get(
+                group["severity"], " ")
+            print(" %s %s  %s" % (
+                mark,
+                time.strftime("%d %b %H:%M", time.localtime(group["start"])),
+                group["headline"]))
+            for text in group["also"]:
+                print("        also %s" % text)
+            if group["more"]:
+                print("        and %d more" % group["more"])
+        print()
+
+    for row in line:
+        print(" %s  %-13s %s" % (
+            time.strftime("%d %b %H:%M", time.localtime(row["ts"])),
+            row["kind"], row["headline"]))
+    if line:
+        print()
+    return 0
+
+
+def _what(args):
+    """`procwatch what WindowServer` -- what a process is, and what it does here.
+
+    Two halves, and the second is the one that cannot be looked up: the
+    catalogue says what WindowServer is, and this machine's own recording says
+    what WindowServer normally costs on this machine. A number is only strange
+    against a normal.
+    """
+    conn = db.connect(config.DB_PATH)
+    try:
+        entry = knowledge.describe(args.name, app=args.name)
+        usual = query.usual(conn, args.name)
+    finally:
+        conn.close()
+
+    print("\n%s  (%s)" % (entry["name"], entry["process"] or args.name))
+    if not entry["known"]:
+        print("  Not in the catalogue -- what follows is a deduction, not a fact.")
+    print()
+    for label, text in (("", entry["does"]),
+                        ("When it is busy", entry["high"]),
+                        ("What to do", entry["advice"])):
+        if not text:
+            continue
+        lines = _wrap(text, 72)
+        if label:
+            print("  %s:" % label)
+            for line in lines:
+                print("    %s" % line)
+        else:
+            for line in lines:
+                print("  %s" % line)
+        print()
+
+    if not usual:
+        print("  Never seen on this Mac.\n")
+        return 0
+    print("  On this Mac: normally %.1f%% of a core and %s, with a peak of "
+          "%.0f%% and %s."
+          % (usual["cpu_avg"], _size(usual["memory_mb"] * 1e6),
+             usual["cpu_peak"], _size(usual["memory_peak_mb"] * 1e6)))
+    print("  %d samples, first seen %s.\n"
+          % (usual["samples"],
+             time.strftime("%d %b %Y", time.localtime(usual["first_seen"]))))
+    return 0
+
+
+def _wrap(text, width):
+    words, lines, current = str(text).split(), [], ""
+    for word in words:
+        if len(current) + len(word) + 1 > width:
+            lines.append(current)
+            current = word
+        else:
+            current = (current + " " + word).strip()
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _sleep(args):
+    conn = db.connect(config.DB_PATH)
+    try:
+        now = int(time.time())
+        start = now - _span(args.span)
+        holding = power.holding_now(conn)
+        held = power.kept_awake(conn, start, now)
+        drain = power.overnight_drain(conn, start, now)
+        spans = power.nights(conn, start, now)
+    finally:
+        conn.close()
+
+    if drain:
+        print("\nAsleep %s, woke %d times, battery fell %d%%."
+              % (_hours(drain["asleep_seconds"]), drain["wakes"],
+                 drain["charge_lost"]))
+    else:
+        print("\nNo battery-powered sleep recorded in this window.")
+
+    reasons = {}
+    for span in spans:
+        if span.get("woke_because"):
+            reasons[span["woke_because"]] = reasons.get(span["woke_because"], 0) + 1
+    if reasons:
+        print("\nWhat woke it:")
+        for reason, count in sorted(reasons.items(), key=lambda kv: -kv[1])[:6]:
+            print("  %-34s %d" % (reason, count))
+
+    if held:
+        print("\nWhat kept it awake:")
+        for hold in held[:6]:
+            print("  %-18s %-10s %s" % (hold["process"], _hours(hold["seconds"]),
+                                        ", ".join(hold["kinds"])[:38]))
+    if holding:
+        print("\nHolding it awake right now:")
+        for hold in holding[:6]:
+            if hold["prevents_sleep"]:
+                print("  %-18s %-10s %s" % (hold["process"],
+                                            _hours(hold["seconds"]), hold["kind"]))
+    print()
+    return 0
+
+
+def _hours(seconds):
+    seconds = int(seconds or 0)
+    if seconds >= 3600:
+        return "%.1f h" % (seconds / 3600.0)
+    return "%d min" % (seconds // 60)
+
+
+def _size(count):
+    count = float(count or 0)
+    for unit, size in (("TB", 1e12), ("GB", 1e9), ("MB", 1e6), ("KB", 1e3)):
+        if abs(count) >= size:
+            return "%.1f %s" % (count / size, unit)
+    return "%d B" % count
+
+
+def _growth(args):
+    conn = db.connect(config.DB_PATH)
+    try:
+        now = int(time.time())
+        report = storage.growth(conn, since=now - _span(args.span), now=now)
+    finally:
+        conn.close()
+    if report["days_compared"] < 2:
+        print("\nNot enough measurements yet -- disk usage is measured once a "
+              "day, so this needs two days.\n")
+        return 0
+    print("\n%s %s since %s.\n"
+          % (_size(abs(report["total_change"])),
+             "more used" if report["total_change"] > 0 else "freed",
+             time.strftime("%d %b", time.localtime(report["from_day"]))))
+    for app in report["apps"]:
+        sign = "+" if app["change"] > 0 else ""
+        note = "" if app["state"] == "changed" else "  (%s)" % app["state"]
+        print("  %-26s %s%s%s" % (app["app"], sign, _size(app["change"]), note))
+    print()
+    return 0
+
+
+def _updates(args):
+    conn = db.connect(config.DB_PATH)
+    try:
+        now = int(time.time())
+        since = now - _span(args.span)
+        changed = versions.updates(conn, since=since, now=now)
+        found = versions.regressions(conn, since=since, now=now)
+    finally:
+        conn.close()
+    if not changed:
+        print("\nNo application updated in this window.\n")
+        return 0
+    print("\n%d update%s." % (len(changed), "" if len(changed) == 1 else "s"))
+    if found:
+        print("\nWhat changed for the worse or better:")
+        for item in found:
+            unit = "%" if item["metric"] == "cpu" else " MB"
+            print("  %-18s %s -> %s   %s %.1f%s -> %.1f%s  (%.1fx %s)"
+                  % (item["app"], item["from_version"], item["to_version"],
+                     "cpu" if item["metric"] == "cpu" else "mem",
+                     item["before"], unit, item["after"], unit,
+                     item["ratio"], "worse" if item["worse"] else "better"))
+    else:
+        print("\nNothing measurably changed for any of them.")
+    print()
+    for item in changed[:10]:
+        print("  %-18s %s -> %-12s %s"
+              % (item["app"], item["from_version"], item["to_version"],
+                 time.strftime("%d %b", time.localtime(item["changed_ts"]))))
+    print()
+    return 0
+
+
 def _duration_arg(text):
     """"10m", "2h", "45s" or bare seconds -- because nobody thinks in seconds."""
     text = str(text).strip().lower()
@@ -208,6 +543,45 @@ def main(argv=None):
     peerer.add_argument("--key", default="",
                         help="the three words that machine printed")
 
+    # The question the whole tool exists to answer, asked the way people ask
+    # it. `procwatch why` with no arguments means "just now".
+    whyer = sub.add_parser("why")
+    whyer.add_argument("--for", dest="span", default="1h",
+                       help="how far back: 30m, 2h, 1d")
+    whyer.add_argument("--at", default="",
+                       help="a time to look at instead, as HH:MM or a unix time")
+
+    # What a process is. The one command here that answers a question people
+    # currently take to a search engine and get a forum post from 2013.
+    whater = sub.add_parser("what")
+    whater.add_argument("name", help="a process name, such as mds_stores")
+
+    # Everything that happened, as opposed to everything that was measured.
+    eventer = sub.add_parser("events")
+    eventer.add_argument("--for", dest="span", default="30d",
+                         help="how far back: 7d, 30d, 1y")
+    eventer.add_argument("--all", action="store_true",
+                         help="print every event, not only the digest")
+
+    # What happened, and whether to be told about it without looking.
+    finder = sub.add_parser("findings")
+    finder.add_argument("--for", dest="span", default="1h",
+                        help="how far back to look: 30m, 2h, 1d")
+    finder.add_argument("--notify", choices=list(prefs.NOTIFY_CHOICES),
+                        help="off, causes, or all")
+    finder.add_argument("--off", action="store_true",
+                        help="stop working out what happened entirely")
+    finder.add_argument("--on", action="store_true", help="start again")
+
+    sleeper = sub.add_parser("sleep")
+    sleeper.add_argument("--for", dest="span", default="1d")
+
+    grower = sub.add_parser("growth")
+    grower.add_argument("--for", dest="span", default="7d")
+
+    updater = sub.add_parser("updates")
+    updater.add_argument("--for", dest="span", default="30d")
+
     keyer = sub.add_parser("key")
     keyer.add_argument("--new", action="store_true",
                        help="forget the old key and make a new one")
@@ -254,6 +628,23 @@ def main(argv=None):
         return _fetch(args.path, args.query)
     if args.command == "peer":
         return _peer(args)
+    if args.command == "why":
+        return _why(args)
+    if args.command == "findings":
+        if args.on and args.off:
+            print("--on and --off contradict each other", file=sys.stderr)
+            return 1
+        return _findings(args)
+    if args.command == "events":
+        return _events(args)
+    if args.command == "what":
+        return _what(args)
+    if args.command == "sleep":
+        return _sleep(args)
+    if args.command == "growth":
+        return _growth(args)
+    if args.command == "updates":
+        return _updates(args)
     if args.command == "key":
         conn = db.connect(config.DB_PATH)
         try:

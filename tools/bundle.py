@@ -19,8 +19,9 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Dependency order: a module may only import ones already inlined above it.
 MODULES = [
     "config", "identity", "psreader", "rusage", "netstat", "system",
-    "db", "archive", "alerts", "storage", "appbuild", "share", "peers",
-    "sampler",
+    "db", "archive", "alerts", "prefs", "storage", "power", "versions",
+    "knowledge", "events", "diagnose",
+    "appbuild", "share", "peers", "sampler",
     "rollup", "procs", "live", "query", "server",
     "launchd", "main", "cli",
 ]
@@ -66,6 +67,14 @@ FOOTER = '''
 
 _STATIC = _b64.b64decode(_INDEX_HTML_B64).decode("utf-8")
 _server = _sys.modules["procwatch.server"]
+
+
+def _dashboard_embedded():
+    """The page baked into this file, for every server that asks for it."""
+    return _STATIC
+
+
+_server.dashboard_html = _dashboard_embedded
 
 
 def _serve_embedded(self):

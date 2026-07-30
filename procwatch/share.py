@@ -21,6 +21,24 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+COOKIE = "procwatch_key"
+
+# Pages allowed to read this server's replies from another origin.
+#
+# Only a local dev server, for anyone working on the dashboard itself. The
+# project's site used to be on this list, because a page hosted there could read
+# 127.0.0.1 and act as a viewer -- that page is gone, and an origin left on an
+# allowlist after the reason for it has gone is a door nobody is watching.
+#
+# Deliberately a list rather than "*": a page on any site can already send a
+# request to a loopback address and the browser will deliver it. What an
+# allowlist controls is whether that page may READ the answer. With "*" any site
+# you visited could quietly inventory your processes once it guessed the key.
+ALLOWED_ORIGINS = (
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+)
+
 from . import config, db
 
 DEFAULT_PORT = 8791
@@ -205,17 +223,75 @@ def _note_success(who):
         _failures.pop(who, None)
 
 
+KEY_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Procwatch</title>
+<style>
+  :root{color-scheme:dark light}
+  body{margin:0;min-height:100vh;display:flex;align-items:center;
+    justify-content:center;background:#0a0a0c;color:#fafafa;
+    font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    padding:24px}
+  .box{width:100%;max-width:340px;text-align:center}
+  h1{font-size:19px;margin:0 0 6px;font-weight:600}
+  p{color:#8b8b95;font-size:13.5px;margin:0 0 22px}
+  input{width:100%;box-sizing:border-box;padding:14px 15px;font-size:17px;
+    text-align:center;border-radius:11px;border:1px solid #2c2c34;
+    background:#16161b;color:#fafafa;letter-spacing:.02em}
+  input:focus{outline:0;border-color:#3b82f6}
+  button{width:100%;margin-top:11px;padding:14px;font-size:16px;
+    font-weight:560;border:0;border-radius:11px;background:#3b82f6;
+    color:#fff}
+  .bad{color:#f87171;font-size:13px;margin:16px 0 0}
+  @media (prefers-color-scheme:light){
+    body{background:#f8f8f9;color:#0f0f12}
+    input{background:#fff;border-color:#e6e6ea;color:#0f0f12}
+    p{color:#8b8b95}
+  }
+</style></head><body>
+  <div class="box">
+    <h1>__HOST__</h1>
+    <p>Enter the three words this Mac showed you.</p>
+    <form method="get" action="/">
+      <input name="key" autocomplete="off" autocapitalize="none"
+             autocorrect="off" spellcheck="false" placeholder="word-word-word"
+             aria-label="Three word key" autofocus>
+      <button type="submit">View</button>
+    </form>
+    __ERROR__
+  </div>
+</body></html>
+"""
+
+
 class ShareHandler(BaseHTTPRequestHandler):
     """Reads only.
 
-    There is no do_POST here and no route to the dashboard, the backup or the
-    export. Adding one later would be the mistake this whole file exists to
-    avoid: the point is not that dangerous things are switched off, it is that
-    they are not present.
+    There is no do_POST here and no route to the backup, the export or
+    anything that can end a process. Adding one later would be the mistake
+    this whole file exists to avoid: the point is not that dangerous things
+    are switched off, it is that they are not present.
+
+    It does serve the dashboard, so a phone on the same network can open it
+    without installing anything. A hosted page cannot do that job: a browser
+    refuses to let an HTTPS page read a plain-HTTP private address at all --
+    verified, it is a Mixed Content block, not something a header can permit.
     """
 
     def log_message(self, *args):
         pass
+
+    def _cors(self):
+        """Let an allowed page read this reply, and nobody else.
+
+        Vary matters: without it a cache that saw the answer for one origin
+        could hand the same headers to another.
+        """
+        origin = self.headers.get("Origin")
+        self.send_header("Vary", "Origin")
+        if origin and origin in ALLOWED_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
 
     def _send(self, code, body):
         payload = body.encode() if isinstance(body, str) else body
@@ -223,25 +299,61 @@ class ShareHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
+        self._cors()
         self.end_headers()
         self.wfile.write(payload)
 
+    def _offered_key(self, params):
+        """The key, from wherever this client could supply it.
+
+        A header for another Mac's relay. A cookie for a browser, once it has
+        been through the entry page. The query string for the first visit and
+        for a link that can be sent to a phone, where typing three words on a
+        keyboard nobody likes is the main obstacle.
+        """
+        header = self.headers.get(HEADER)
+        if header:
+            return header, "header"
+        if params.get("key"):
+            return params["key"][0].strip(), "query"
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == COOKIE:
+                return value.strip(), "cookie"
+        return "", "none"
+
+    def _wants_page(self, path):
+        return path in ("/", "/index.html")
+
     def do_GET(self):
         who = self.client_address[0]
+        parsed = urlparse(self.path)
+        params = parse_qs(parsed.query)
+        page = self._wants_page(parsed.path)
+
         if _locked_out(who):
+            if page:
+                return self._send_key_page("Too many wrong keys. "
+                                           "Try again in a minute.", 429)
             return self._send(429, json.dumps(
                 {"error": "too many wrong keys; try again in a minute"}))
-        offered = self.headers.get(HEADER) or ""
+
+        offered, source = self._offered_key(params)
         if not hmac.compare_digest(offered, self.server.share_key):
-            _note_failure(who)
-            # A pause on every wrong answer, so guessing costs real time
-            # rather than being limited by how fast a laptop can ask.
-            time.sleep(0.5)
+            if source != "none":
+                _note_failure(who)
+                # A pause on every wrong answer, so guessing costs real time
+                # rather than being limited by how fast a phone can ask.
+                time.sleep(0.5)
+            if page:
+                return self._send_key_page(
+                    "That key was not right." if source != "none" else "")
             return self._send(401, json.dumps({"error": "wrong or missing key"}))
         _note_success(who)
 
-        parsed = urlparse(self.path)
-        params = parse_qs(parsed.query)
+        if page:
+            return self._send_dashboard(offered, remember=source == "query")
+
         from . import server                       # imported late: server imports us
         conn = db.connect(config.DB_PATH)
         try:
@@ -254,6 +366,53 @@ class ShareHandler(BaseHTTPRequestHandler):
         finally:
             conn.close()
 
+    def _send_key_page(self, error="", code=200):
+        host = os.uname().nodename.split(".")[0]
+        body = KEY_PAGE.replace("__HOST__", _escape(host)).replace(
+            "__ERROR__", '<p class="bad">%s</p>' % _escape(error) if error else "")
+        self._send_html(code, body)
+
+    def _send_dashboard(self, key, remember):
+        """The dashboard itself, marked read-only.
+
+        The same page the local server sends, so there is one dashboard rather
+        than a cut-down copy to keep in step. The marker tells it to hide the
+        controls that act on a machine -- there is nothing behind them here,
+        and a button that cannot work is worse than one that is absent.
+        """
+        try:
+            from . import server
+            page = server.dashboard_html()
+        except (OSError, RuntimeError):
+            return self._send(500, json.dumps({"error": "no dashboard installed"}))
+        page = page.replace("__PROCWATCH_TOKEN__", "")
+        page = page.replace("<head>",
+                            '<head>\n<meta name="procwatch-readonly" content="1">', 1)
+        headers = []
+        if remember:
+            # So a link carrying the key only has to be opened once, and the
+            # key stops appearing in the address bar. Session-scoped: nothing
+            # is written to that phone's disk.
+            headers.append(("Set-Cookie",
+                            "%s=%s; Path=/; SameSite=Lax; HttpOnly" % (COOKIE, key)))
+        self._send_html(200, page, extra=headers)
+
+    def _send_html(self, code, body, extra=()):
+        payload = body.encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        for name, value in extra:
+            self.send_header(name, value)
+        self.end_headers()
+        self.wfile.write(payload)
+
+
+def _escape(text):
+    return (str(text).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
 
 def serve(port=DEFAULT_PORT, host="0.0.0.0", reset=False):
     conn = db.connect(config.DB_PATH)
@@ -263,10 +422,13 @@ def serve(port=DEFAULT_PORT, host="0.0.0.0", reset=False):
         conn.close()
     httpd = ThreadingHTTPServer((host, port), ShareHandler)
     httpd.share_key = secret
+    where = local_address() or "this-mac-address"
     print("Sharing this Mac's history on port %d." % port)
-    print("On the other machine, add this one with:")
-    print("  procwatch peer add %s <this-mac-address>:%d --key %s"
-          % (os.uname().nodename.split(".")[0].lower(), port, secret))
+    print("\nFrom a phone or tablet on the same network, open:")
+    print("  http://%s:%d/?key=%s" % (where, port, secret))
+    print("\nFrom another Mac's dashboard, add this one as a device:")
+    print("  procwatch peer add %s %s:%d --key %s"
+          % (os.uname().nodename.split(".")[0].lower(), where, port, secret))
     print("\nRead-only: no process can be ended and no database copied "
           "through this port.")
     httpd.serve_forever()

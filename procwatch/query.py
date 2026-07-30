@@ -18,6 +18,8 @@ what comes back into uniform render buckets, using the same merge rules
 rollup.collapse uses when moving a bucket up a tier -- the read path must
 not contradict the storage path.
 """
+import time
+
 from . import config
 
 # A window wider than this many buckets is too dense to render usefully.
@@ -57,9 +59,10 @@ def _tier_union(prefix, select_cols, where_extra=""):
 
 def _proc_names(conn, ids):
     placeholders = ",".join("?" * len(ids))
-    return {r[0]: (r[1], r[2], bool(r[3]), r[4] or "") for r in conn.execute(
-        "SELECT id, exe, cmdline_full, is_system, app FROM proc WHERE id IN (%s)"
-        % placeholders, ids).fetchall()}
+    return {r[0]: (r[1], r[2], bool(r[3]), r[4] or "", r[5] or "")
+            for r in conn.execute(
+        "SELECT id, exe, cmdline_full, is_system, app, args_sig FROM proc "
+        "WHERE id IN (%s)" % placeholders, ids).fetchall()}
 
 
 # A synthetic identity for the folded remainder, distinct from any real
@@ -107,10 +110,11 @@ def _fold_samples(rows, names, bucket_width):
 
     grouped = {}
     for (pid, bucket_ts), a in sorted(acc.items(), key=lambda kv: kv[0][1]):
-        exe, cmdline, is_system, app = names[pid]
+        exe, cmdline, is_system, app, args_sig = names[pid]
         entry = grouped.setdefault(pid, {
             "exe": exe, "cmdline": cmdline, "is_other": exe == config.OTHER,
-            "is_system": is_system, "app": app, "points": []})
+            "is_system": is_system, "app": app, "args_sig": args_sig,
+            "points": []})
         entry["points"].append({
             "ts": bucket_ts,
             "cpu_avg": (a["cpu_avg_sum"] / a["samples"]) / 10.0,
@@ -198,8 +202,17 @@ def _fold_system(rows, bucket_width, now=None):
     return result
 
 
-def series(conn, start, end, limit=12, scope="all"):
-    """Top-`limit` series by peak CPU in [start, end), plus system and gaps.
+# How the top-`limit` processes are chosen. CPU peak is the right default --
+# it is what makes a machine feel slow -- and it is the wrong basis for the
+# battery chart: the processes that spend the most energy are frequently not
+# the ones that peak highest, so ranking by CPU folded 95% of the attributed
+# energy on this machine into the remainder band, and the chart answered "what
+# spent your battery" with "mostly something else".
+RANKINGS = {"cpu": "MAX(cpu_max)", "energy": "SUM(energy)"}
+
+
+def series(conn, start, end, limit=12, scope="all", rank="cpu"):
+    """Top-`limit` series in [start, end), plus system and gaps.
 
     scope="apps" ranks and returns APPLICATIONS: identities that belong to a
     .app bundle, folded together under the bundle's name. Ranking has to
@@ -218,9 +231,12 @@ def series(conn, start, end, limit=12, scope="all"):
     # into the remainder computed below, so there is exactly one of them.
     rank_filter = scope_filter + (
         " AND proc_id NOT IN (SELECT id FROM proc WHERE exe = '%s')" % config.OTHER)
-    rank_sql = ("SELECT proc_id, MAX(cpu_max) FROM (%s) GROUP BY proc_id "
+    measure = RANKINGS.get(rank, RANKINGS["cpu"])
+    rank_sql = ("SELECT proc_id, %s FROM (%s) GROUP BY proc_id "
                 "ORDER BY 2 DESC LIMIT ?"
-                % _tier_union("sample_", "proc_id, cpu_max", rank_filter))
+                % (measure,
+                   _tier_union("sample_", "proc_id, cpu_max, energy",
+                               rank_filter)))
     rank_params = []
     for _ in config.TIERS:
         rank_params.extend([start, end])
@@ -281,7 +297,10 @@ def series(conn, start, end, limit=12, scope="all"):
     # instant, so any larger figure would be a number nothing ever reached.
     rest_rows = [(_OTHER_ID,) + tuple(r) for r in rest_rows if r[1]]
     if rest_rows:
-        names = {_OTHER_ID: (config.OTHER, "", 1, "")}
+        # Five fields, matching _proc_names: exe, cmdline, is_system, app and
+        # the interned argument signature. The remainder is a sum rather than a
+        # process, so it has no signature and nothing can be matched to it.
+        names = {_OTHER_ID: (config.OTHER, "", 1, "", "")}
         for pid, points in _fold_samples(rest_rows, names, bucket_width).items():
             grouped[pid] = points
 
@@ -359,6 +378,10 @@ def bucket_detail(conn, tier_name, ts):
                      # Needed to fold helpers under the application that owns
                      # them, the same way the charts group them.
                      "app": entry.get("app", ""),
+                     # The exact signature the sampler interned this process
+                     # under, so "is it still running" is a lookup rather than a
+                     # re-derivation that has to be hoped to agree.
+                     "args_sig": entry.get("args_sig", ""),
                      "cpu_avg": point["cpu_avg"],
                      "cpu_max": point["cpu_max"], "cpu_max_ts": point["cpu_max_ts"],
                      "rss_kb": point["rss_avg"], "rss_max_kb": point["rss_max"],
@@ -405,6 +428,78 @@ def activity(conn, start, end):
              "cpu_max": a["peak"] / 10.0,
              "coverage": min(1.0, a["samples"] / float(nominal))}
             for hour, a in sorted(hours.items())]
+
+
+def activity_days(conn, start, end):
+    """Machine busyness per calendar day, for the year grid.
+
+    A year of hours is 8,760 rows to send and then throw away: the grid draws
+    one cell per day, so the aggregation belongs here. Bucketed by LOCAL
+    midnight rather than by ts // 86400, because a day is a thing on a
+    calendar -- dividing Unix time by 86400 puts every cell out by the
+    machine's offset from Greenwich, which is how a Sunday's work ends up
+    reported on Saturday.
+
+    Coverage is against a full day of samples, so a day the machine was shut
+    for twenty hours reads as barely-recorded rather than as idle. Those are
+    not the same thing, and telling them apart is most of the point.
+    """
+    sql = ("SELECT ts, cpu_busy, samples, expected FROM (%s) ORDER BY ts"
+           % _tier_union("system_", "ts, cpu_busy, samples, expected"))
+    params = []
+    for _ in config.TIERS:
+        params.extend([start, end])
+
+    days = {}
+    for ts, cpu_busy, samples, expected in conn.execute(sql, params):
+        stamp = time.localtime(ts)
+        key = int(time.mktime((stamp.tm_year, stamp.tm_mon, stamp.tm_mday,
+                               0, 0, 0, 0, 0, -1)))
+        a = days.setdefault(key, {"sum": 0, "n": 0, "peak": 0, "samples": 0})
+        a["sum"] += cpu_busy * samples
+        a["n"] += samples
+        a["peak"] = max(a["peak"], cpu_busy)
+        a["samples"] += samples
+
+    nominal = 86400 // config.INTERVAL
+    return [{"ts": day,
+             "cpu_avg": (a["sum"] / a["n"]) / 10.0 if a["n"] else 0.0,
+             "cpu_max": a["peak"] / 10.0,
+             "coverage": min(1.0, a["samples"] / float(nominal))}
+            for day, a in sorted(days.items())]
+
+
+def usual(conn, exe):
+    """What this process normally does on THIS Mac.
+
+    The catalogue can say what a process is; only the recording can say what
+    normal looks like here. "WindowServer is using 40% of a core" means nothing
+    without knowing that it averages 12% on this machine and has been to 180%.
+    That comparison is the part no reference page can give you, and it is why
+    the answer is worth more the longer the tool has been running.
+    """
+    row = conn.execute(
+        "SELECT AVG(s.cpu_avg)/10.0, MAX(s.cpu_max)/10.0, AVG(s.rss_avg)/1024.0,"
+        "       MAX(s.rss_max)/1024.0, COUNT(*), MIN(s.ts), MAX(s.ts) "
+        "FROM sample_coarse s JOIN proc p ON p.id = s.proc_id "
+        "WHERE p.exe = ?", (exe,)).fetchone()
+    # The coarse tier is hourly and covers a year, which is the right shape for
+    # a baseline. A machine younger than that has nothing there yet, so the
+    # raw tier answers instead -- a week of normal beats no normal.
+    if not row or not row[4]:
+        row = conn.execute(
+            "SELECT AVG(s.cpu_avg)/10.0, MAX(s.cpu_max)/10.0, "
+            "       AVG(s.rss_avg)/1024.0, MAX(s.rss_max)/1024.0, COUNT(*), "
+            "       MIN(s.ts), MAX(s.ts) "
+            "FROM sample_raw s JOIN proc p ON p.id = s.proc_id "
+            "WHERE p.exe = ?", (exe,)).fetchone()
+    if not row or not row[4]:
+        return None
+    return {"cpu_avg": round(row[0] or 0.0, 1),
+            "cpu_peak": round(row[1] or 0.0, 1),
+            "memory_mb": round(row[2] or 0.0, 1),
+            "memory_peak_mb": round(row[3] or 0.0, 1),
+            "samples": row[4], "first_seen": row[5], "last_seen": row[6]}
 
 
 def _like(term):

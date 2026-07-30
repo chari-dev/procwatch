@@ -5,7 +5,14 @@ __pycache__/
 *.db-shm
 .DS_Store
 .superpowers/
+# Build output. build.sh deletes and recreates the whole bundle, and it carries
+# a copy of procwatch.py inside it -- committed, that copy drifts from the real
+# one and the next reader cannot tell which is authoritative. The old 1.0.0 name
+# is kept because an existing checkout may still have one.
+menubar/Procwatch.app/
 menubar/ProcwatchBar.app/
 
-# screenshots belong in the repository
+# Screenshots and the icon belong in the repository -- the landing page needs
+# them -- but not the Finder's droppings inside those folders.
 !docs/images/
+docs/**/.DS_Store

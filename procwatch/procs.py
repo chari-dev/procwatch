@@ -108,6 +108,34 @@ def live_tree():
     return {"groups": listing, "uid": uid}
 
 
+def running_now(procs=None):
+    """Which of the processes recorded in the past are running right now.
+
+    Returns {(exe, args_sig): [pid, ...]} and {app: [pid, ...]}, derived through
+    identity.derive -- the same function the sampler used when it wrote the
+    history, so a row from a week ago and a process alive this second are keyed
+    the same way and either match or genuinely differ.
+
+    This exists because the history does not record PIDs, and should not: a PID
+    is reused within hours, so a button offering to end "the process that was
+    running at 4:15pm" by its number would eventually end something else
+    entirely, with the same confident label. Matching by identity means the
+    button can only ever act on something that is running now and is the same
+    program -- and when nothing matches there is nothing to press.
+    """
+    from . import psreader
+    procs = psreader.read() if procs is None else procs
+    by_identity, by_app = {}, {}
+    apps = identity.apps(procs)
+    for proc in procs:
+        exe, sig = identity.derive(proc.comm, proc.command)
+        by_identity.setdefault((exe, sig), []).append(proc.pid)
+        app = apps.get(proc.pid)
+        if app:
+            by_app.setdefault(app, []).append(proc.pid)
+    return by_identity, by_app
+
+
 def signal_pid(pid, name="TERM"):
     """Send TERM or KILL to one process this user owns.
 

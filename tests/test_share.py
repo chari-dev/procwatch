@@ -131,5 +131,108 @@ class TestReadOnly(unittest.TestCase):
         self.assertIn("compare_digest", inspect.getsource(share.ShareHandler))
 
 
+class TestCorsPolicy(unittest.TestCase):
+    """Who may read this server's answers from another origin.
+
+    Lived in test_pages.py, which covered the hosted viewer page. That page is
+    gone; this is not about it -- a page on any site can send a request to a
+    loopback address and have it delivered, and what the allowlist decides is
+    whether that page may read the reply.
+    """
+
+    def test_it_is_never_a_wildcard(self):
+        self.assertNotIn("*", share.ALLOWED_ORIGINS)
+
+    def test_it_lists_only_local_development_origins(self):
+        # The project's own site was on this list so a page hosted there could
+        # act as a viewer. That page is gone, and an origin left behind after
+        # its reason has gone is a door nobody is watching.
+        for origin in share.ALLOWED_ORIGINS:
+            self.assertTrue(
+                origin.startswith("http://localhost")
+                or origin.startswith("http://127.0.0.1"),
+                "%s is not a local origin" % origin)
+
+    def test_the_reply_varies_by_origin(self):
+        # Without it a shared cache could hand one origin's permission to
+        # another.
+        import inspect
+        self.assertIn('"Vary", "Origin"',
+                      inspect.getsource(share.ShareHandler._cors))
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPhoneAccess(unittest.TestCase):
+    """Serving the dashboard to a phone on the same network.
+
+    A hosted page cannot do this job. A browser refuses to let an HTTPS page
+    read a plain-HTTP private address at all -- it is a Mixed Content block,
+    not something a header can permit -- so the page has to come from the Mac
+    that has the data. localhost is exempt from that rule, which is why tools
+    that only ever talk to 127.0.0.1 can be hosted elsewhere; a phone cannot
+    use that exemption.
+    """
+
+    def _offered(self, headers=None, params=None):
+        """Run the real key-extraction against stub request state.
+
+        Asserted by calling it rather than by reading its source: what matters
+        is which of the three ways a client can present a key actually work.
+        """
+        stub = share.ShareHandler.__new__(share.ShareHandler)
+        stub.headers = headers or {}
+        return share.ShareHandler._offered_key(stub, params or {})
+
+    def test_a_relay_can_use_a_header(self):
+        self.assertEqual(self._offered({share.HEADER: "a-b-c"}),
+                         ("a-b-c", "header"))
+
+    def test_a_phone_can_use_the_query_string(self):
+        # A phone cannot add a request header by typing a URL.
+        self.assertEqual(self._offered(params={"key": ["a-b-c"]}),
+                         ("a-b-c", "query"))
+
+    def test_a_browser_can_use_the_cookie_it_was_given(self):
+        self.assertEqual(
+            self._offered({"Cookie": "other=1; %s=a-b-c" % share.COOKIE}),
+            ("a-b-c", "cookie"))
+
+    def test_nothing_offered_is_reported_as_nothing(self):
+        # Distinct from a wrong key: a first visit must not count as a failed
+        # attempt towards the lockout.
+        self.assertEqual(self._offered(), ("", "none"))
+
+    def test_the_key_page_asks_for_three_words(self):
+        self.assertIn("three words", share.KEY_PAGE)
+        self.assertIn('method="get"', share.KEY_PAGE)
+
+    def test_the_key_page_scales_to_a_phone(self):
+        self.assertIn("width=device-width", share.KEY_PAGE)
+
+    def test_the_key_page_escapes_what_it_interpolates(self):
+        # Both placeholders carry runtime values into HTML.
+        self.assertIn("__HOST__", share.KEY_PAGE)
+        self.assertIn("__ERROR__", share.KEY_PAGE)
+        self.assertEqual(share._escape('<img src=x onerror="a">'),
+                         "&lt;img src=x onerror=&quot;a&quot;&gt;")
+
+    def test_serving_a_page_is_still_not_serving_a_way_to_act(self):
+        # The dashboard is sent, but nothing behind its buttons exists here.
+        self.assertFalse(hasattr(share.ShareHandler, "do_POST"))
+
+    def test_the_dashboard_is_marked_read_only(self):
+        import inspect
+        source = inspect.getsource(share.ShareHandler._send_dashboard)
+        self.assertIn("procwatch-readonly", source)
+
+    def test_both_servers_read_the_same_dashboard(self):
+        # A second copy of the page for the shared port would drift out of
+        # step with the local one.
+        from procwatch import server
+        self.assertTrue(callable(getattr(server, "dashboard_html", None)))
+        import inspect
+        self.assertIn("dashboard_html",
+                      inspect.getsource(share.ShareHandler._send_dashboard))

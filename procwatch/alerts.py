@@ -162,17 +162,20 @@ def evaluate(conn, now=None):
     return raised
 
 
-def notify(event):
-    """Put an alert on screen, via the notification centre.
+def post(title, body):
+    """Put one notification on screen, via the notification centre.
 
     osascript rather than a framework binding: it is the only way to post a
     macOS notification without a signed bundle, and this has to work when
     procwatch is a single Python file that was curled from the internet.
+
+    Shared, because the diagnosis posts notifications too and two copies of
+    this would eventually differ in how they quote a process name -- which is
+    the one thing here that can turn a notification into a shell argument.
+    json.dumps is doing that quoting: it produces an AppleScript string
+    literal, and it is why a process called `foo" & do shell script "bad` is a
+    name rather than a command.
     """
-    title = "%s %s" % (event["exe"], event["rule"]["metric"])
-    body = "%s at %.1f%s for %s" % (
-        event["app"] or event["exe"], event["value"], event["unit"],
-        _duration(event["rule"]["sustain"]))
     try:
         subprocess.run(
             ["osascript", "-e",
@@ -181,6 +184,14 @@ def notify(event):
             capture_output=True, timeout=10)
     except (OSError, subprocess.TimeoutExpired):
         pass          # a missed notification is not worth failing a tick over
+
+
+def notify(event):
+    """Put an alert on screen."""
+    post("%s %s" % (event["exe"], event["rule"]["metric"]),
+         "%s at %.1f%s for %s" % (
+             event["app"] or event["exe"], event["value"], event["unit"],
+             _duration(event["rule"]["sustain"])))
 
 
 def _duration(seconds):

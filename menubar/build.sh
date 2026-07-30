@@ -14,6 +14,13 @@ cp procwatch-bar.png "$APP/Contents/Resources/procwatch-bar.png"
 python3 ../tools/bundle.py ../procwatch.py >/dev/null
 cp ../procwatch.py "$APP/Contents/Resources/procwatch.py"
 
+# The version, from the one place it is written down, and a build identifier
+# derived from what was actually built. Hardcoding the version here is how the
+# bundle came to claim 1.0 through four releases -- and how the tool that
+# reports on application updates stayed blind to its own.
+VERSION=$(python3 -c 'import sys; sys.path.insert(0, ".."); from procwatch import config; print(config.VERSION)')
+BUILD=$(shasum -a 256 ../procwatch.py | cut -c1-8)
+
 swiftc -O ProcwatchBar.swift -o "$APP/Contents/MacOS/ProcwatchBar" \
   -framework AppKit -framework WebKit
 
@@ -26,7 +33,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key><string>dev.procwatch.bar</string>
   <key>CFBundleExecutable</key><string>ProcwatchBar</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleShortVersionString</key><string>__VERSION__</string>
+  <key>CFBundleVersion</key><string>__BUILD__</string>
   <key>CFBundleIconFile</key><string>procwatch</string>
   <key>LSUIElement</key><true/>
   <key>NSLocalNetworkUsageDescription</key>
@@ -35,6 +43,11 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST
+
+# Substituted rather than interpolated: the heredoc stays quoted so nothing in
+# the plist's prose can expand, and only these two placeholders move.
+sed -i '' -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" \
+    "$APP/Contents/Info.plist"
 
 # swiftc leaves a linker signature that covers the binary and not the bundle,
 # so Info.plist is "not bound" -- macOS then has no usage description to show

@@ -18,8 +18,9 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import (alerts, archive, config, db, live, netstat, peers, procs,
-               query, share, storage, system)
+from . import (alerts, archive, config, db, diagnose, events, knowledge, live,
+               netstat, peers, power, prefs, procs, query, share, storage,
+               system, versions)
 
 IDLE_TIMEOUT = 900
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -58,14 +59,24 @@ def api_get(conn, path, params):
         # Clamped rather than trusted: the cost of the query scales with the
         # count, and it arrives from a query string.
         limit = max(1, min(60, int(params.get("limit", [12])[0])))
-        return query.series(conn, start, end, limit=limit, scope=scope)
+        out = query.series(conn, start, end, limit=limit, scope=scope)
+        # A second ranking of the same window, by energy rather than by CPU
+        # peak, for the battery chart. Carried in the same response because the
+        # buckets have to line up with the battery readings beside them, and
+        # two requests can straddle a tick and disagree about the last one.
+        if params.get("energy", ["0"])[0] not in ("0", "", "false"):
+            out["energy_series"] = query.series(
+                conn, start, end, limit=min(limit, 10), scope=scope,
+                rank="energy")["series"]
+        return out
 
     if path == "/api/bucket":
         tier = params.get("tier", [None])[0]
         ts = params.get("ts", [None])[0]
         if tier is None or ts is None:
             raise ValueError("tier and ts are required")
-        return query.bucket_detail(conn, tier, _seconds(ts))
+        rows = query.bucket_detail(conn, tier, _seconds(ts))
+        return _attach_live_pids(rows)
 
     if path == "/api/info":
         info = system.machine_info()
@@ -108,8 +119,13 @@ def api_get(conn, path, params):
         return info
 
     if path == "/api/activity":
-        days = max(1, min(370, int(params.get("days", ["30"])[0])))
+        days = max(1, min(400, int(params.get("days", ["30"])[0])))
         now = int(time.time())
+        # One cell per day for the year grid, per hour for anything shorter.
+        # A year of hourly rows is 8,760 of them, all but 365 of which the grid
+        # would add together and discard.
+        if params.get("by", ["hour"])[0] == "day":
+            return query.activity_days(conn, now - days * 86400, now)
         return query.activity(conn, now - days * 86400, now)
 
     if path == "/api/ports":
@@ -133,7 +149,105 @@ def api_get(conn, path, params):
     if path == "/api/search":
         return query.search(conn, params.get("q", [""])[0], limit=25)
 
+    if path == "/api/what":
+        # What one process is. Answered from the catalogue and from this
+        # machine's own history together, so "is this normal" is answered with
+        # what is normal *here* rather than only in general.
+        name = params.get("name", [""])[0]
+        entry = knowledge.describe(name, params.get("cmdline", [""])[0],
+                                  params.get("app", [""])[0])
+        entry["usual"] = query.usual(conn, name)
+        return entry
+
+    if path == "/api/events":
+        # The history, digested. Defaults to a month, which is the span over
+        # which a repeat becomes visible -- a day of events is a log, and a
+        # month of them is a pattern.
+        end = _seconds(params.get("end", [time.time()])[0])
+        days = max(1, min(400, int(params.get("days", ["30"])[0])))
+        start = _seconds(params.get("start", [end - days * 86400])[0])
+        digest = events.digest(conn, start, end)
+        digest["timeline"] = events.timeline(conn, start, end, limit=120)
+        for pattern in digest["patterns"]:
+            pattern["says"] = events.describe_pattern(pattern, now=int(end))
+        return digest
+
+    if path == "/api/prefs":
+        return prefs.all_prefs(conn)
+
+    if path == "/api/badge":
+        # What the menu bar shows. Cheap enough to poll: the verdict over an
+        # hour, which is the same work the dashboard does when it opens.
+        count, keys = diagnose.unread(conn)
+        return {"count": count, "keys": keys,
+                "enabled": prefs.findings_on(conn)}
+
+    if path == "/api/why":
+        # The verdict for a window. Defaults to the last hour, which is the
+        # span someone has in mind when they say "it was slow just now".
+        end = _seconds(params.get("end", [time.time()])[0])
+        start = _seconds(params.get("start", [end - 3600])[0])
+        return diagnose.explain(conn, start, end)
+
+    if path == "/api/power":
+        end = _seconds(params.get("end", [time.time()])[0])
+        start = _seconds(params.get("start", [end - 86400])[0])
+        return {"holding_now": power.holding_now(conn),
+                "kept_awake": power.kept_awake(conn, start, end),
+                "spans": power.nights(conn, start, end)[-40:],
+                "drain": power.overnight_drain(conn, start, end)}
+
+    if path == "/api/growth":
+        days = max(1, min(370, int(params.get("days", ["7"])[0])))
+        now = int(time.time())
+        return storage.growth(conn, since=now - days * 86400, now=now)
+
+    if path == "/api/updates":
+        days = max(1, min(370, int(params.get("days", ["30"])[0])))
+        now = int(time.time())
+        # Annotated rather than bare: the panel has to name the update and say
+        # what happened to it, including "not enough recorded yet", which a list
+        # of regressions alone cannot express.
+        return {"history": versions.history(conn, now=now),
+                "updates": versions.compared(conn, since=now - days * 86400,
+                                            now=now)[:40],
+                "regressions": versions.regressions(conn,
+                                                    since=now - days * 86400,
+                                                    now=now)}
+
     return None
+
+
+def _attach_live_pids(rows, by_identity=None):
+    """Say which of these historical rows are still running, and as what.
+
+    The drill-down is a picture of a past minute, and the question it provokes
+    -- "is that thing still doing it, and can I stop it" -- has no answer in the
+    history itself. So each row is matched against what is running right now.
+
+    Matched by identity rather than by a recorded PID, which is not stored and
+    would be the wrong thing to use if it were: PIDs are reused within hours, so
+    a button aimed at "the process from 4:15pm" would eventually hit something
+    unrelated while still carrying its name.
+    """
+    if by_identity is None:
+        try:
+            by_identity, _ = procs.running_now()
+        except Exception:
+            # A failed `ps` costs the buttons, not the panel.
+            return rows
+    for row in rows:
+        if row.get("is_other"):
+            row["pids"] = []
+            continue
+        # Keyed on what the sampler stored, not on a re-derivation of the
+        # command line -- that disagreed on a quarter of the rows here, and a
+        # near miss fell through to "everything in this application", which
+        # would have put a Quit button that ends all of Arc on a row naming one
+        # of its renderers.
+        key = (row["exe"], row.get("args_sig") or "")
+        row["pids"] = sorted(by_identity.get(key, []))
+    return rows
 
 
 def _csv(text):
@@ -157,6 +271,18 @@ def _seconds(value):
     a 400 rather than guessing.
     """
     return int(float(value))
+
+
+def dashboard_html():
+    """The dashboard page, unrendered.
+
+    Both servers need it -- the local one and the read-only sharing port --
+    and the single-file build replaces this function with one that returns an
+    embedded copy. Keeping the lookup in one place is what stops the shared
+    port from drifting into a second, older dashboard.
+    """
+    with open(os.path.join(STATIC, "index.html"), "r") as handle:
+        return handle.read()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -213,7 +339,8 @@ class Handler(BaseHTTPRequestHandler):
         """
         self.server.last_seen = time.time()
         parsed = urlparse(self.path)
-        if parsed.path not in ("/api/kill", "/api/alerts", "/api/peers"):
+        if parsed.path not in ("/api/kill", "/api/alerts", "/api/peers",
+                               "/api/prefs", "/api/read"):
             return self._send(404, "not found", "text/plain")
         # Same guard for both. Changing a rule is far less dangerous than
         # signalling a process, but a page on another origin still has no
@@ -226,6 +353,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._change_alert()
         if parsed.path == "/api/peers":
             return self._change_peer()
+        if parsed.path == "/api/prefs":
+            return self._change_prefs()
+        if parsed.path == "/api/read":
+            return self._mark_read()
         try:
             length = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(length) or b"{}")
@@ -263,6 +394,61 @@ class Handler(BaseHTTPRequestHandler):
                               "application/json")
         except (ValueError, KeyError, TypeError) as error:
             return self._send(400, json.dumps({"error": str(error)}),
+                              "application/json")
+        finally:
+            conn.close()
+
+    def _change_prefs(self):
+        """Change a setting the recorder reads.
+
+        Only the keys prefs knows, and only the values it allows -- the
+        validation is there rather than here so the CLI and this cannot disagree
+        about what a legal setting is.
+        """
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            return self._send(400, json.dumps({"error": "malformed request"}),
+                              "application/json")
+        conn = db.connect(config.DB_PATH)
+        try:
+            was = prefs.findings_on(conn)
+            for key, value in body.items():
+                prefs.set(conn, str(key), value)
+            # Switching the diagnosis off forgets what it has already mentioned,
+            # so switching it on again next month starts quiet rather than
+            # comparing against a table from before.
+            if was and not prefs.findings_on(conn):
+                diagnose.forget_findings(conn)
+            return self._send(200, json.dumps({"ok": True,
+                                               "prefs": prefs.all_prefs(conn)}),
+                              "application/json")
+        except (KeyError, ValueError, TypeError) as error:
+            return self._send(400, json.dumps({"error": str(error)}),
+                              "application/json")
+        finally:
+            conn.close()
+
+    def _mark_read(self):
+        """Note that the findings have been looked at.
+
+        Sent when the verdict is opened. The keys are taken from the request
+        where the caller supplied them, so anything that turned up between the
+        panel being drawn and this arriving is still counted as unread rather
+        than silently marked as seen.
+        """
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            body = {}
+        conn = db.connect(config.DB_PATH)
+        try:
+            keys = body.get("keys")
+            read = diagnose.mark_read(conn, keys if keys else None)
+            return self._send(200, json.dumps({"ok": True, "read": read,
+                                               "count": diagnose.unread(conn)[0]}),
                               "application/json")
         finally:
             conn.close()
@@ -448,9 +634,8 @@ class Handler(BaseHTTPRequestHandler):
         response at all, which is what makes the token worth anything.
         """
         try:
-            with open(os.path.join(STATIC, "index.html"), "r") as handle:
-                page = handle.read()
-        except FileNotFoundError:
+            page = dashboard_html()
+        except OSError:
             return self._send(404, "no dashboard installed", "text/plain")
         page = page.replace("__PROCWATCH_TOKEN__", _token_of(self.server))
         self._send(200, page.encode(), "text/html; charset=utf-8")

@@ -107,6 +107,12 @@ def init_schema(conn):
     """Safe to call on every tick; every statement is IF NOT EXISTS."""
     with conn:
         conn.executescript(_SUPPORT_DDL)
+        # Owned by their modules, registered here so every database has them
+        # from the first tick rather than from whenever that module first runs.
+        from . import diagnose, events, prefs
+        conn.executescript(events.DDL)
+        conn.executescript(prefs.DDL)
+        conn.executescript(diagnose.DDL)
         for tier in config.TIERS:
             conn.executescript(_SAMPLE_DDL.format(tier=tier.name))
             conn.executescript(_SYSTEM_DDL.format(tier=tier.name))

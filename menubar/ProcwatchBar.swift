@@ -68,6 +68,8 @@ final class Controller: NSObject, NSApplicationDelegate, NSPopoverDelegate,
     var serverProcess: Process?
     var localNetwork: NWBrowser?
     var askedForLocalNetwork = false
+    var badgeTimer: Timer?
+    var badgeCount = 0
 
     func applicationDidFinishLaunching(_ note: Notification) {
         if let value = ProcessInfo.processInfo.environment["PROCWATCH_PORT"],
@@ -85,6 +87,15 @@ final class Controller: NSObject, NSApplicationDelegate, NSPopoverDelegate,
             button.action = #selector(toggle(_:))
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        }
+
+        // How many findings have not been looked at, in the menu bar itself.
+        // A minute is often enough for something that is checked by glancing at
+        // it, and rare enough that the recorder is not answering a request every
+        // few seconds for a number that changes a handful of times a day.
+        refreshBadge()
+        badgeTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+            self.refreshBadge()
         }
 
         let config = WKWebViewConfiguration()
@@ -117,6 +128,50 @@ final class Controller: NSObject, NSApplicationDelegate, NSPopoverDelegate,
 
     /// Ask only once something needs it.
     ///
+    /// Ask the recorder how many findings are waiting, and show the count.
+    ///
+    /// The icon is replaced by the count rather than sitting beside it: the menu
+    /// bar is the most contended strip on the screen, and a permanent badge on a
+    /// logo is the kind of thing people remove the app to get rid of. When there
+    /// is nothing to report it is the logo and nothing else.
+    func refreshBadge() {
+        guard let url = URL(string: "http://127.0.0.1:\(port)/api/badge") else { return }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 3
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let payload = try? JSONSerialization.jsonObject(with: data)
+                      as? [String: Any] else { return }
+            let enabled = (payload["enabled"] as? Bool) ?? true
+            let count = enabled ? ((payload["count"] as? Int) ?? 0) : 0
+            DispatchQueue.main.async { self.showBadge(count) }
+        }.resume()
+    }
+
+    func showBadge(_ count: Int) {
+        badgeCount = count
+        guard let button = statusItem.button else { return }
+        if count <= 0 {
+            button.image = menuBarIcon()
+            button.title = ""
+            button.toolTip = "Procwatch"
+            return
+        }
+        // The image goes while the count is up. Leaving both would make the
+        // status item twice as wide for as long as anything is unread.
+        button.image = nil
+        let text = "\u{25C9} \(count)"
+        let colour = NSColor.systemOrange
+        button.attributedTitle = NSAttributedString(
+            string: text,
+            attributes: [.foregroundColor: colour,
+                         .font: NSFont.systemFont(ofSize: 12,
+                                                  weight: .semibold)])
+        button.toolTip = count == 1
+            ? "Procwatch: 1 finding you have not read"
+            : "Procwatch: \(count) findings you have not read"
+    }
+
     /// A process monitor requesting access to your network before you have
     /// asked it to look at anything reads as the tool doing something it has
     /// not explained. So the question is raised when there is a reason for it:
@@ -213,6 +268,11 @@ final class Controller: NSObject, NSApplicationDelegate, NSPopoverDelegate,
             return
         }
         ensureServer()
+        // Opening the panel is reading them. The count clears now rather than
+        // when the page happens to finish loading, so pressing the badge does
+        // what pressing a badge is expected to do; the page marks them read on
+        // the recorder's side, and the next poll agrees.
+        if badgeCount > 0 { showBadge(0) }
         popover.contentSize = panelSize()
         // Reload on every open, ignoring any cached copy: the dashboard is
         // edited often and a cached page looks identical to a broken one.

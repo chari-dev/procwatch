@@ -10,8 +10,8 @@ import sys
 import time
 import traceback
 
-from . import (alerts, config, db, identity, netstat, psreader, rollup,
-               rusage, sampler, storage, system)
+from . import (alerts, config, db, diagnose, events, identity, netstat, power,
+               psreader, rollup, rusage, sampler, storage, system, versions)
 
 
 def _log(message):
@@ -79,6 +79,48 @@ def run_once(now=None):
                 storage.scan(conn)
         except Exception as error:
             _log("storage scan failed: %s" % error)
+        # What is holding the machine awake, every tick: 13 ms, and the only
+        # way to know the duration of a hold that ends between two ticks.
+        try:
+            power.tick(conn, now)
+            # The full power log costs ten seconds, so it is read rarely and
+            # only for what observation cannot see: what happened while this
+            # was not running, because the machine was asleep.
+            if power.due(conn, now):
+                power.import_log(conn, now)
+                power.prune(conn, now)
+        except Exception as error:
+            _log("power collection failed: %s" % error)
+        # Crashes, boots, installs and the rest, every quarter of an hour.
+        # Cheap -- two directory listings, `last`, and one system_profiler --
+        # but pointless every thirty seconds: a Mac does not crash twice a
+        # minute, and when it does, the reports are still there next tick.
+        try:
+            events.init(conn)
+            if events.due(conn, now):
+                events.collect(conn, now)
+                events.prune(conn, now=now)
+        except Exception as error:
+            _log("event collection failed: %s" % error)
+        # What happened, worked out on a slow cadence so it can be mentioned
+        # without anybody having to go and look. Last of the cheap collectors:
+        # it reads the tables the ones above just wrote, so it wants to run
+        # after them rather than beside them.
+        try:
+            if diagnose.watch_due(conn, now):
+                for finding in diagnose.watch(conn, now):
+                    _log("finding: %s" % finding["headline"])
+        except Exception as error:
+            _log("finding watch failed: %s" % error)
+        # Versions ride along with the daily storage scan: reading a hundred
+        # Info.plist files is cheap but pointless to repeat every thirty
+        # seconds, and an app updates a few times a month at most.
+        try:
+            if storage.due(conn, now, every=3600):
+                versions.tick(conn, now)
+                versions.prune(conn, now)
+        except Exception as error:
+            _log("version collection failed: %s" % error)
         return 0
     except Exception as error:
         _log("write failed: %s" % error)
