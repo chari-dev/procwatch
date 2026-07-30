@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Procwatch: per-process history for macOS</title>
+    <meta name="description" content="Activity Monitor tells you what is slow right now, then forgets. Procwatch remembers, and tells you what happened in a sentence, with the numbers underneath.">
+    <meta name="theme-color" content="#fcfcfc">
+    <link rel="canonical" href="https://chari-dev.github.io/procwatch/">
+    <link rel="icon" type="image/png" sizes="64x64" href="images/icon-64.png">
+    <link rel="apple-touch-icon" href="images/icon-256.png">
+
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Procwatch: per-process history for macOS">
+    <meta property="og:description" content="It tells you what happened in a sentence: crashes, what spent the battery, what kept your Mac awake, with the numbers underneath. Local, always recording, no dependencies.">
+    <meta property="og:image" content="https://chari-dev.github.io/procwatch/images/verdict.png">
+    <meta property="og:url" content="https://chari-dev.github.io/procwatch/">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Procwatch: per-process history for macOS">
+    <meta name="twitter:description" content="Activity Monitor forgets. Procwatch remembers, and tells you what happened.">
+    <meta name="twitter:image" content="https://chari-dev.github.io/procwatch/images/verdict.png">
+
+    <!-- Tailwind, vendored and pinned. Served from our own origin so there is
+         no third-party script to compromise, no SRI hash to go stale when the
+         CDN releases, and the page styles itself offline. -->
+    <script src="vendor/tailwind-3.4.16.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+    <style>
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+            background-color: #fcfcfc;
+            background-image:
+                linear-gradient(to right, rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+            background-size: 32px 32px;
+            background-position: center top;
+        }
+        .font-serif-italic {
+            font-family: 'Instrument Serif', ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+            font-style: italic;
+        }
+        .code-block {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        }
+        /* The hero sits over a soft glow in the brand blue, so the page has a
+           focal point without abandoning the flat grid. */
+        .hero-glow {
+            background:
+                radial-gradient(52% 42% at 50% 30%, rgba(59, 130, 246, 0.09), transparent 70%);
+        }
+        .window-chrome {
+            box-shadow:
+                0 1px 1px rgba(0, 0, 0, 0.04),
+                0 32px 64px -16px rgba(0, 0, 0, 0.22),
+                0 0 0 1px rgba(0, 0, 0, 0.06);
+        }
+        .feature-shot {
+            box-shadow:
+                0 1px 1px rgba(0, 0, 0, 0.04),
+                0 20px 40px -16px rgba(0, 0, 0, 0.22),
+                0 0 0 1px rgba(0, 0, 0, 0.06);
+            transition: transform .25s ease, box-shadow .25s ease;
+        }
+        .feature-shot:hover {
+            transform: translateY(-3px);
+            box-shadow:
+                0 1px 1px rgba(0, 0, 0, 0.04),
+                0 28px 52px -16px rgba(0, 0, 0, 0.26),
+                0 0 0 1px rgba(0, 0, 0, 0.06);
+        }
+        .app-icon {
+            box-shadow:
+                0 2px 4px rgba(0, 0, 0, 0.06),
+                0 18px 36px -12px rgba(0, 0, 0, 0.25);
+        }
+        .cmd-scroll { scrollbar-width: none; }
+        .cmd-scroll::-webkit-scrollbar { display: none; }
+        @media (prefers-reduced-motion: reduce) {
+            html { scroll-behavior: auto; }
+            video { display: none; }
+            .hero-fallback { display: block !important; }
+            .feature-shot, .feature-shot:hover { transform: none; transition: none; }
+        }
+    </style>
+</head>
+<body class="text-gray-900 antialiased overflow-x-hidden selection:bg-blue-100 selection:text-blue-900">
+
+    <!-- Nav -->
+    <nav class="sticky top-0 z-50 bg-[#fcfcfc]/85 backdrop-blur-md border-b border-gray-200/70">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <a href="#top" class="flex items-center gap-2.5">
+                <img src="images/icon-128.png" width="30" height="30" alt="" class="rounded-[8px]">
+                <span class="font-bold tracking-tight text-[15px]">Procwatch</span>
+            </a>
+            <div class="flex items-center gap-1 sm:gap-6">
+                <a href="#features" class="hidden sm:block text-sm text-gray-500 hover:text-gray-900 transition-colors">Features</a>
+                <a href="#demo" class="hidden sm:block text-sm text-gray-500 hover:text-gray-900 transition-colors">Demo</a>
+                <a href="#install" class="hidden sm:block text-sm text-gray-500 hover:text-gray-900 transition-colors">Install</a>
+                <a href="https://github.com/chari-dev/procwatch/releases/" class="hidden sm:block text-sm text-gray-500 hover:text-gray-900 transition-colors">Releases</a>
+                <a href="https://github.com/chari-dev/procwatch"
+                   class="bg-gray-900 hover:bg-gray-700 text-white text-sm font-medium pl-3.5 pr-4 py-2 rounded-full transition-colors inline-flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.45-.23-1.227.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clip-rule="evenodd"/>
+                    </svg>
+                    GitHub
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <header id="top" class="hero-glow pt-16 pb-14 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto flex flex-col items-center text-center">
+        <div class="bg-white p-2.5 rounded-[22px] app-icon border border-gray-100 mb-7">
+            <img src="images/icon-256.png" width="84" height="84" alt="Procwatch app icon" class="rounded-[16px]">
+        </div>
+
+        <h1 class="text-5xl md:text-7xl font-bold tracking-tight text-gray-900 mb-6">
+            Remember what<br>
+            <span class="text-blue-600 font-serif-italic font-normal">ate your Mac.</span>
+        </h1>
+
+        <p class="mt-1 text-lg md:text-xl text-gray-500 max-w-2xl mx-auto mb-9 leading-relaxed">
+            Activity Monitor forgets. Procwatch records every process, then
+            tells you what happened in a sentence, with the numbers underneath.
+        </p>
+
+        <!-- Install one-liner, front and centre -->
+        <div class="w-full max-w-[840px] mb-4">
+            <div class="flex rounded-xl overflow-hidden bg-[#16130f] border border-black/70 shadow-lg text-left">
+                <div class="flex-1 px-5 py-4 overflow-x-auto cmd-scroll code-block text-[12px] sm:text-[13.5px] whitespace-nowrap leading-relaxed">
+                    <span class="text-[#20c0a8] mr-1.5">$</span><span class="text-white" id="heroCmd">curl -fsSL https://raw.githubusercontent.com/chari-dev/procwatch/main/install.sh | sh</span>
+                </div>
+                <div class="w-px self-stretch bg-white/10 shrink-0"></div>
+                <button type="button" data-copy="heroCmd"
+                        class="copy-btn px-4 sm:px-5 flex items-center justify-center shrink-0 hover:bg-white/5 transition-colors text-gray-400 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                        aria-label="Copy install command">
+                    <svg class="copy-icon w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                    </svg>
+                    <svg class="check-icon w-[18px] h-[18px] hidden text-[#20c0a8]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                </button>
+            </div>
+            <p class="text-[13px] text-gray-400 mt-3">
+                One command in Terminal is the whole install. Nothing needs <span class="code-block">sudo</span>.
+                Prefer to read it first? <a href="https://raw.githubusercontent.com/chari-dev/procwatch/main/install.sh" class="text-gray-500 underline decoration-gray-300 underline-offset-2 hover:text-gray-900 transition-colors">Here it is.</a>
+            </p>
+        </div>
+
+        <div class="flex flex-col sm:flex-row items-center gap-3 mb-5">
+            <a href="https://github.com/chari-dev/procwatch/releases/"
+               class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 px-7 rounded-lg shadow-sm transition-colors w-full sm:w-auto text-center">
+                Go to Releases
+            </a>
+            <a href="#features"
+               class="bg-white hover:bg-gray-50 text-gray-900 border border-gray-200 font-medium py-2.5 px-7 rounded-lg shadow-sm transition-colors w-full sm:w-auto text-center">
+                Features
+            </a>
+        </div>
+        <p class="text-xs text-gray-400">macOS · Python 3.9+ · MIT licence · no third-party dependencies</p>
+    </header>
+
+    <!-- Hero media: real install + dashboard recording -->
+    <div id="demo" class="max-w-[1040px] mx-auto px-4 sm:px-6 lg:px-8 mb-28 relative z-10 scroll-mt-24">
+        <!-- The recording, without a drawn window around it.
+
+             The frame used to be a mock title bar with three traffic lights and
+             the app's name in the middle. The recording is already of a real
+             window on a real Mac, so the chrome was a second window drawn around
+             the first -- and a fake close button on a landing page is a control
+             nobody can press. -->
+        <div class="bg-[#0a0a0c] rounded-xl window-chrome overflow-hidden border border-gray-800/80">
+            <img src="images/hero.gif"
+                 alt="Procwatch: installing it, then the dashboard"
+                 class="w-full block"
+                 width="760" height="489">
+        </div>
+        <p class="text-center text-sm text-gray-400 mt-5">
+            A real recording, not a mockup. This is the dashboard on a working Mac.
+        </p>
+    </div>
+
+    <!-- Feature: look back -->
+    <section id="features" class="py-16 md:py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 scroll-mt-24">
+        <div class="grid grid-cols-1 lg:grid-cols-[0.78fr_1.22fr] gap-10 lg:gap-14 items-center">
+            <div>
+                <p class="text-blue-600 text-xs font-semibold tracking-widest uppercase mb-3">History</p>
+                <h2 class="text-4xl md:text-5xl font-bold text-gray-900 mb-5 leading-tight tracking-tight">
+                    Any minute,<br>named processes
+                </h2>
+                <p class="text-lg text-gray-500 leading-relaxed">
+                    Scroll back and click. Every process that was running, with what it used.
+                </p>
+            </div>
+            <div class="flex justify-center">
+                <picture>
+                    <img src="images/history.png"
+                         alt="A stacked CPU chart with a moment opened"
+                         class="rounded-xl feature-shot w-full"
+                         width="1422" height="896" loading="lazy">
+                </picture>
+            </div>
+        </div>
+    </section>
+
+    <!-- Feature: always recording -->
+    <section class="py-16 md:py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-1 lg:grid-cols-[1.22fr_0.78fr] gap-10 lg:gap-14 items-center">
+            <div class="lg:order-2">
+                <p class="text-blue-600 text-xs font-semibold tracking-widest uppercase mb-3">Always on</p>
+                <h2 class="text-4xl md:text-5xl font-bold text-gray-900 mb-5 leading-tight tracking-tight">
+                    Records while you<br>forget about it
+                </h2>
+                <p class="text-lg text-gray-500 leading-relaxed">
+                    A launchd agent, every thirty seconds, across restarts. About 1% of a core.
+                </p>
+            </div>
+            <div class="flex justify-center lg:order-1">
+                <picture>
+                    <img src="images/live.png"
+                         alt="The live process table, grouped by application"
+                         class="rounded-xl feature-shot w-full"
+                         width="1422" height="896" loading="lazy">
+                </picture>
+            </div>
+        </div>
+    </section>
+
+    <!-- Feature: charts -->
+    <section class="py-16 md:py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-1 lg:grid-cols-[0.78fr_1.22fr] gap-10 lg:gap-14 items-center">
+            <div>
+                <p class="text-blue-600 text-xs font-semibold tracking-widest uppercase mb-3">Dashboard</p>
+                <h2 class="text-4xl md:text-5xl font-bold text-gray-900 mb-5 leading-tight tracking-tight">
+                    Charts that name<br>the process
+                </h2>
+                <p class="text-lg text-gray-500 leading-relaxed">
+                    CPU, memory, network, disk and swap, stacked by process rather than one flat line.
+                </p>
+            </div>
+            <div class="flex justify-center">
+                <picture>
+                    <img src="images/charts.png"
+                         alt="Network by process, with a moment open"
+                         class="rounded-xl feature-shot w-full"
+                         width="1422" height="896" loading="lazy">
+                </picture>
+            </div>
+        </div>
+    </section>
+
+    <!-- Feature: the verdict -->
+    <section class="py-16 md:py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-1 lg:grid-cols-[1.22fr_0.78fr] gap-10 lg:gap-14 items-center">
+            <div class="lg:order-2">
+                <p class="text-blue-600 text-xs font-semibold tracking-widest uppercase mb-3">The answer</p>
+                <h2 class="text-4xl md:text-5xl font-bold text-gray-900 mb-5 leading-tight tracking-tight">
+                    It reads the chart<br>so you don't have to
+                </h2>
+                <p class="text-lg text-gray-500 leading-relaxed">
+                    One sentence in the toolbar. The findings, and the numbers behind them, under it.
+                </p>
+            </div>
+            <div class="flex justify-center lg:order-1">
+                <picture>
+                    <img src="images/verdict.png"
+                         alt="The verdict open, with an explanation beside it"
+                         class="rounded-xl feature-shot w-full"
+                         width="1422" height="896" loading="lazy">
+                </picture>
+            </div>
+        </div>
+    </section>
+
+    <!-- Feature: what a process is -->
+    <section class="py-16 md:py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-1 lg:grid-cols-[0.78fr_1.22fr] gap-10 lg:gap-14 items-center">
+            <div>
+                <p class="text-blue-600 text-xs font-semibold tracking-widest uppercase mb-3">92 processes, explained</p>
+                <h2 class="text-4xl md:text-5xl font-bold text-gray-900 mb-5 leading-tight tracking-tight">
+                    It knows what<br>mds_stores is
+                </h2>
+                <p class="text-lg text-gray-500 leading-relaxed">
+                    What it is, whether busy is normal for it, and what it normally costs on your Mac.
+                </p>
+            </div>
+            <div class="flex justify-center">
+                <picture>
+                    <img src="images/explain.png"
+                         alt="A popover explaining what a process is"
+                         class="rounded-xl feature-shot w-full"
+                         width="1422" height="896" loading="lazy">
+                </picture>
+            </div>
+        </div>
+    </section>
+
+    <!-- Feature: battery -->
+    <section class="py-16 md:py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-1 lg:grid-cols-[1.22fr_0.78fr] gap-10 lg:gap-14 items-center">
+            <div class="lg:order-2">
+                <p class="text-blue-600 text-xs font-semibold tracking-widest uppercase mb-3">Battery</p>
+                <h2 class="text-4xl md:text-5xl font-bold text-gray-900 mb-5 leading-tight tracking-tight">
+                    Not “energy impact”.<br>Actual watt-hours
+                </h2>
+                <p class="text-lg text-gray-500 leading-relaxed">
+                    The battery line, and the area under it divided by who spent it. “About 3.55 Wh.”
+                </p>
+            </div>
+            <div class="flex justify-center lg:order-1">
+                <picture>
+                    <img src="images/battery.png"
+                         alt="The battery curve with the area under it divided between processes"
+                         class="rounded-xl feature-shot w-full"
+                         width="1422" height="896" loading="lazy">
+                </picture>
+            </div>
+        </div>
+    </section>
+
+    <!-- Feature: event history -->
+    <section class="py-16 md:py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="max-w-3xl">
+            <p class="text-blue-600 text-xs font-semibold tracking-widest uppercase mb-3">What happened</p>
+            <h2 class="text-4xl md:text-5xl font-bold text-gray-900 mb-5 leading-tight tracking-tight">
+                Six places macOS keeps its history.<br>Nothing else reads them together
+            </h2>
+            <p class="text-lg text-gray-500 leading-relaxed">
+                Crashes, hangs, restarts, installs, the power log. One timeline, read for you.
+            </p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-10 mt-12">
+            <div>
+                <div class="text-2xl mb-3" aria-hidden="true">◆</div>
+                <h3 class="font-bold text-gray-900 mb-2">Grouped into incidents</h3>
+                <p class="text-sm text-gray-500 leading-relaxed">
+                    A wake, the backup it triggers and the indexing after it are one thing, not three.
+                </p>
+            </div>
+            <div>
+                <div class="text-2xl mb-3" aria-hidden="true">↻</div>
+                <h3 class="font-bold text-gray-900 mb-2">Repeats, named</h3>
+                <p class="text-sm text-gray-500 leading-relaxed">
+                    “Nine times in four days, six of them just after waking.”
+                </p>
+            </div>
+            <div>
+                <div class="text-2xl mb-3" aria-hidden="true">★</div>
+                <h3 class="font-bold text-gray-900 mb-2">Firsts, separated</h3>
+                <p class="text-sm text-gray-500 leading-relaxed">
+                    The fortieth time is background. The first time is news.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Feature: the year -->
+    <section class="py-16 md:py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-1 lg:grid-cols-[0.78fr_1.22fr] gap-10 lg:gap-14 items-center">
+            <div>
+                <p class="text-blue-600 text-xs font-semibold tracking-widest uppercase mb-3">A year at a glance</p>
+                <h2 class="text-4xl md:text-5xl font-bold text-gray-900 mb-5 leading-tight tracking-tight">
+                    When this machine<br>is actually busy
+                </h2>
+                <p class="text-lg text-gray-500 leading-relaxed">
+                    One cell a day, a full year. Hollow means nothing recorded, which is not the same as idle.
+                </p>
+            </div>
+            <div class="flex justify-center">
+                <picture>
+                    <img src="images/year.png"
+                         alt="A year of daily activity as a heat grid"
+                         class="rounded-xl feature-shot w-full"
+                         width="1422" height="896" loading="lazy">
+                </picture>
+            </div>
+        </div>
+    </section>
+
+    <!-- Feature: after an update -->
+    <section class="py-16 md:py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-1 lg:grid-cols-[1.22fr_0.78fr] gap-10 lg:gap-14 items-center">
+            <div class="lg:order-2">
+                <p class="text-blue-600 text-xs font-semibold tracking-widest uppercase mb-3">After an update</p>
+                <h2 class="text-4xl md:text-5xl font-bold text-gray-900 mb-5 leading-tight tracking-tight">
+                    The update that<br>made it worse
+                </h2>
+                <p class="text-lg text-gray-500 leading-relaxed">
+                    Every version measured. Four updates that each changed nothing can still double the memory.
+                </p>
+            </div>
+            <div class="flex justify-center lg:order-1">
+                <picture>
+                    <img src="images/updates.png"
+                         alt="Applications folded open onto their version histories"
+                         class="rounded-xl feature-shot w-full"
+                         width="1422" height="896" loading="lazy">
+                </picture>
+            </div>
+        </div>
+    </section>
+
+    <!-- Feature: sleep -->
+    <section class="py-16 md:py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-1 lg:grid-cols-[0.78fr_1.22fr] gap-10 lg:gap-14 items-center">
+            <div>
+                <p class="text-blue-600 text-xs font-semibold tracking-widest uppercase mb-3">Sleep</p>
+                <h2 class="text-4xl md:text-5xl font-bold text-gray-900 mb-5 leading-tight tracking-tight">
+                    Why it was warm<br>in the bag
+                </h2>
+                <p class="text-lg text-gray-500 leading-relaxed">
+                    What woke it, and what stopped it sleeping. A program can hold a Mac awake for thirty hours.
+                </p>
+            </div>
+            <div class="flex justify-center">
+                <picture>
+                    <img src="images/sleep.png"
+                         alt="What woke this Mac and what kept it awake"
+                         class="rounded-xl feature-shot w-full"
+                         width="1422" height="896" loading="lazy">
+                </picture>
+            </div>
+        </div>
+    </section>
+
+    <!-- Feature: disk space -->
+    <section class="py-16 md:py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-1 lg:grid-cols-[1.22fr_0.78fr] gap-10 lg:gap-14 items-center">
+            <div class="lg:order-2">
+                <p class="text-blue-600 text-xs font-semibold tracking-widest uppercase mb-3">Disk space</p>
+                <h2 class="text-4xl md:text-5xl font-bold text-gray-900 mb-5 leading-tight tracking-tight">
+                    The app is small.<br>Its data is not
+                </h2>
+                <p class="text-lg text-gray-500 leading-relaxed">
+                    Bundle, data and caches, separately. Dragging an app to the Bin leaves the rest.
+                </p>
+            </div>
+            <div class="flex justify-center lg:order-1">
+                <picture>
+                    <img src="images/storage.png"
+                         alt="Disk space split between an application, its data and its caches"
+                         class="rounded-xl feature-shot w-full"
+                         width="1422" height="896" loading="lazy">
+                </picture>
+            </div>
+        </div>
+    </section>
+
+    <!-- Feature: ports -->
+    <section class="py-16 md:py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-1 lg:grid-cols-[0.78fr_1.22fr] gap-10 lg:gap-14 items-center">
+            <div>
+                <p class="text-blue-600 text-xs font-semibold tracking-widest uppercase mb-3">Open ports</p>
+                <h2 class="text-4xl md:text-5xl font-bold text-gray-900 mb-5 leading-tight tracking-tight">
+                    What is on 3000,<br>and who started it
+                </h2>
+                <p class="text-lg text-gray-500 leading-relaxed">
+                    Every listening port, the process behind it, and a button to end it.
+                </p>
+            </div>
+            <div class="flex justify-center">
+                <picture>
+                    <img src="images/ports.png"
+                         alt="Listening ports with the process behind each one"
+                         class="rounded-xl feature-shot w-full"
+                         width="1422" height="896" loading="lazy">
+                </picture>
+            </div>
+        </div>
+    </section>
+
+    <!-- Feature: other Macs -->
+    <section class="py-16 md:py-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-1 lg:grid-cols-[1.22fr_0.78fr] gap-10 lg:gap-14 items-center">
+            <div class="lg:order-2">
+                <p class="text-blue-600 text-xs font-semibold tracking-widest uppercase mb-3">Every Mac you own</p>
+                <h2 class="text-4xl md:text-5xl font-bold text-gray-900 mb-5 leading-tight tracking-tight">
+                    Watch the other one<br>from this one
+                </h2>
+                <p class="text-lg text-gray-500 leading-relaxed">
+                    Three words and an address. That port is read-only, so nothing can be ended through it.
+                </p>
+            </div>
+            <div class="flex justify-center lg:order-1">
+                <picture>
+                    <img src="images/devices.png"
+                         alt="Adding another Mac by address and three-word key"
+                         class="rounded-xl feature-shot w-full"
+                         width="1422" height="896" loading="lazy">
+                </picture>
+            </div>
+        </div>
+    </section>
+
+    <!-- Feature grid -->
+    <section class="py-24 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 border-t border-gray-100">
+        <h2 class="text-3xl md:text-4xl font-bold text-center text-gray-900 mb-16 tracking-tight">
+            Everything you need to <span class="text-blue-600 font-serif-italic font-normal">know what ran.</span>
+        </h2>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-y-12 gap-x-12">
+            <div class="lg:border-r border-gray-200 lg:pr-12 pb-12 border-b">
+                <div class="text-2xl mb-4" aria-hidden="true">⏱</div>
+                <h3 class="font-bold text-gray-900 mb-2">True CPU from deltas</h3>
+                <p class="text-sm text-gray-500 leading-relaxed">
+                    From cumulative <code class="text-xs bg-gray-100 px-1 rounded">cputime</code> deltas. <code class="text-xs bg-gray-100 px-1 rounded">ps</code>'s own %CPU lags a spike by a minute.
+                </p>
+            </div>
+            <div class="lg:border-r border-gray-200 lg:px-12 pb-12 border-b">
+                <div class="text-2xl mb-4" aria-hidden="true">🔔</div>
+                <h3 class="font-bold text-gray-900 mb-2">Sustained alerts</h3>
+                <p class="text-sm text-gray-500 leading-relaxed">
+                    80% held for ten minutes, not one spike. Notified whether or not the page is open.
+                </p>
+            </div>
+            <div class="lg:pl-12 pb-12 border-b">
+                <div class="text-2xl mb-4" aria-hidden="true">🖥</div>
+                <h3 class="font-bold text-gray-900 mb-2">Menu bar app</h3>
+                <p class="text-sm text-gray-500 leading-relaxed">
+                    The whole dashboard in a panel. No Dock icon.
+                </p>
+            </div>
+            <div class="lg:border-r border-gray-200 lg:pr-12 py-12 border-b">
+                <div class="text-2xl mb-4" aria-hidden="true">⏱</div>
+                <h3 class="font-bold text-gray-900 mb-2">It thins as it ages</h3>
+                <p class="text-sm text-gray-500 leading-relaxed">
+                    Thirty seconds for a week, five minutes for a month, hourly for a year.
+                </p>
+            </div>
+            <div class="lg:border-r border-gray-200 lg:px-12 py-12 border-b">
+                <div class="text-2xl mb-4" aria-hidden="true">💾</div>
+                <h3 class="font-bold text-gray-900 mb-2">Backup &amp; export</h3>
+                <p class="text-sm text-gray-500 leading-relaxed">
+                    A consistent copy while the sampler writes, and CSV of any window.
+                </p>
+            </div>
+            <div class="lg:pl-12 py-12 border-b">
+                <div class="text-2xl mb-4" aria-hidden="true">📦</div>
+                <h3 class="font-bold text-gray-900 mb-2">Stdlib only</h3>
+                <p class="text-sm text-gray-500 leading-relaxed">
+                    One Python file. No packages, no account, nothing leaves the Mac.
+                </p>
+            </div>
+            <div class="lg:border-r border-gray-200 lg:pr-12 py-12 border-b lg:border-b-0">
+                <div class="text-2xl mb-4" aria-hidden="true">🔔</div>
+                <h3 class="font-bold text-gray-900 mb-2">Told, not asked</h3>
+                <p class="text-sm text-gray-500 leading-relaxed">
+                    A notification the first time something turns up. Quiet for six hours after.
+                </p>
+            </div>
+            <div class="lg:border-r border-gray-200 lg:px-12 py-12 border-b lg:border-b-0">
+                <div class="text-2xl mb-4" aria-hidden="true">🔢</div>
+                <h3 class="font-bold text-gray-900 mb-2">A count in the menu bar</h3>
+                <p class="text-sm text-gray-500 leading-relaxed">
+                    Unread findings in place of the icon. Press it and the icon returns.
+                </p>
+            </div>
+            <div class="lg:pl-12 py-12 border-b lg:border-b-0">
+                <div class="text-2xl mb-4" aria-hidden="true">📱</div>
+                <h3 class="font-bold text-gray-900 mb-2">Read it from your phone</h3>
+                <p class="text-sm text-gray-500 leading-relaxed">
+                    <code class="text-xs bg-gray-100 px-1 rounded">procwatch share</code> prints a link and three words. Read-only.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Install (Homebrew-style) -->
+    <section id="install" class="py-24 px-4 sm:px-6 lg:px-8 scroll-mt-24">
+        <div class="max-w-[950px] mx-auto">
+            <div class="rounded-2xl bg-[#1c1917] text-[#dbd9d0] px-6 sm:px-10 py-14 border border-[#37352d] shadow-xl">
+                <h2 class="text-[#f5c677] text-3xl sm:text-4xl font-bold flex items-center gap-4 mb-8 tracking-tight">
+                    <img src="images/icon-128.png" width="44" height="44" alt="" class="rounded-[10px] shadow-lg shrink-0">
+                    Install Procwatch
+                </h2>
+
+                <div class="w-full flex rounded-lg overflow-hidden bg-[#141210] border border-[#37352d] relative group">
+                    <div class="flex-1 px-5 py-4 overflow-x-auto cmd-scroll code-block text-[14px] sm:text-[15px] leading-relaxed whitespace-nowrap">
+                        <span class="text-[#20c0a8] mr-1">$</span>
+                        <span class="text-white" id="installCmd">curl -fsSL https://raw.githubusercontent.com/chari-dev/procwatch/main/install.sh | sh</span>
+                    </div>
+                    <div class="w-px bg-[#37352d] shrink-0"></div>
+                    <button type="button" data-copy="installCmd"
+                            class="copy-btn px-5 flex items-center justify-center shrink-0 hover:bg-[#282620] transition-colors text-[#9ca3af] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#f5c677]"
+                            aria-label="Copy install command">
+                        <svg class="copy-icon w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                        </svg>
+                        <svg class="check-icon w-[18px] h-[18px] hidden text-[#20c0a8]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6 mt-8 text-[16px] leading-snug font-medium">
+                    <p>
+                        Paste that in Terminal. The script installs the tool, schedules the
+                        recorder every 30 seconds, and builds the menu bar app if
+                        <code class="text-[#f5c677] bg-[#37352d] px-1 rounded code-block text-[14px]">swiftc</code>
+                        is available. Nothing needs <code class="text-[#f5c677] bg-[#37352d] px-1 rounded code-block text-[14px]">sudo</code>.
+                    </p>
+                    <p>
+                        Prefer to read it first:
+                        <a href="https://raw.githubusercontent.com/chari-dev/procwatch/main/install.sh"
+                           class="text-[#f5c677] hover:underline hover:text-[#fcd389] transition-colors">install.sh</a>.
+                        Or clone the
+                        <a href="https://github.com/chari-dev/procwatch"
+                           class="text-[#f5c677] hover:underline hover:text-[#fcd389] transition-colors">repository</a>
+                        and run <code class="text-[#f5c677] bg-[#37352d] px-1 rounded code-block text-[14px]">sh install.sh</code>.
+                        Every build is on the
+                        <a href="https://github.com/chari-dev/procwatch/releases/"
+                           class="text-[#f5c677] hover:underline hover:text-[#fcd389] transition-colors">releases page</a>.
+                    </p>
+                </div>
+
+                <div class="mt-10 pt-8 border-t border-[#37352d]">
+                    <p class="text-sm text-[#9ca3af] mb-3">After install</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 code-block text-[13px]">
+                        <div class="bg-[#141210] border border-[#37352d] rounded-lg px-4 py-3">
+                            <div class="text-[#20c0a8] text-xs mb-1">why was it slow?</div>
+                            <div class="text-white">procwatch why</div>
+                        </div>
+                        <div class="bg-[#141210] border border-[#37352d] rounded-lg px-4 py-3">
+                            <div class="text-[#20c0a8] text-xs mb-1">what is this process?</div>
+                            <div class="text-white">procwatch what mds_stores</div>
+                        </div>
+                        <div class="bg-[#141210] border border-[#37352d] rounded-lg px-4 py-3">
+                            <div class="text-[#20c0a8] text-xs mb-1">what happened?</div>
+                            <div class="text-white">procwatch events</div>
+                        </div>
+                        <div class="bg-[#141210] border border-[#37352d] rounded-lg px-4 py-3">
+                            <div class="text-[#20c0a8] text-xs mb-1">dashboard</div>
+                            <div class="text-white">procwatch open</div>
+                        </div>
+                        <div class="bg-[#141210] border border-[#37352d] rounded-lg px-4 py-3">
+                            <div class="text-[#20c0a8] text-xs mb-1">a phone, or another Mac</div>
+                            <div class="text-white">procwatch share</div>
+                        </div>
+                        <div class="bg-[#141210] border border-[#37352d] rounded-lg px-4 py-3">
+                            <div class="text-[#20c0a8] text-xs mb-1">what woke it</div>
+                            <div class="text-white">procwatch sleep</div>
+                        </div>
+                        <div class="bg-[#141210] border border-[#37352d] rounded-lg px-4 py-3">
+                            <div class="text-[#20c0a8] text-xs mb-1">notifications on or off</div>
+                            <div class="text-white">procwatch findings --notify off</div>
+                        </div>
+                        <div class="bg-[#141210] border border-[#37352d] rounded-lg px-4 py-3">
+                            <div class="text-[#20c0a8] text-xs mb-1">remove (keeps history)</div>
+                            <div class="text-white">sh install.sh --uninstall</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            
+        </div>
+    </section>
+
+    <!-- Bottom CTA -->
+    <section class="py-24 px-4 sm:px-6 lg:px-8 relative z-10">
+        <div class="max-w-4xl mx-auto bg-white rounded-3xl shadow-xl p-12 md:p-16 pt-20 text-center border border-gray-100 relative">
+            <div class="absolute -top-12 left-1/2 -translate-x-1/2 bg-white p-2.5 rounded-[22px] app-icon border border-gray-100">
+                <img src="images/icon-256.png" width="76" height="76" alt="" class="rounded-[15px]">
+            </div>
+
+            <h2 class="text-3xl md:text-4xl font-bold text-gray-900 mb-4 mt-4 tracking-tight">
+                Stop guessing what ran overnight
+            </h2>
+            <p class="text-lg text-gray-500 mb-10 max-w-xl mx-auto">
+                Local history. Named processes. Free and open source.
+                Every build is on the releases page.
+            </p>
+
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-3">
+                <a href="https://github.com/chari-dev/procwatch/releases/"
+                   class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-3.5 px-10 rounded-lg shadow-sm transition-colors">
+                    Go to Releases
+                </a>
+                <a href="https://github.com/chari-dev/procwatch"
+                   class="bg-white hover:bg-gray-50 text-gray-900 border border-gray-200 font-medium py-3.5 px-8 rounded-lg shadow-sm transition-colors">
+                    View source
+                </a>
+            </div>
+            <p class="text-xs text-gray-400 mt-5">Requires macOS and Python 3.9 or later</p>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="border-t border-gray-200 mt-8 bg-white/60 backdrop-blur-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14 flex flex-col md:flex-row justify-between gap-10">
+            <div class="max-w-sm">
+                <div class="flex items-center gap-2.5 font-semibold text-gray-900 mb-3">
+                    <img src="images/icon-64.png" width="26" height="26" alt="" class="rounded-[6px]">
+                    Procwatch
+                </div>
+                <p class="text-sm text-gray-500 leading-relaxed">
+                    Per-process history for macOS. MIT licence.
+                    Built to answer one question Activity Monitor cannot.
+                </p>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-8 sm:gap-14 text-sm">
+                <div>
+                    <div class="font-semibold text-gray-900 mb-3">Product</div>
+                    <ul class="space-y-2 text-gray-500">
+                        <li><a href="#features" class="hover:text-gray-900 transition-colors">Features</a></li>
+                        <li><a href="#install" class="hover:text-gray-900 transition-colors">Install</a></li>
+                        <li><a href="https://github.com/chari-dev/procwatch/releases" class="hover:text-gray-900 transition-colors">Releases</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <div class="font-semibold text-gray-900 mb-3">Source</div>
+                    <ul class="space-y-2 text-gray-500">
+                        <li><a href="https://github.com/chari-dev/procwatch" class="hover:text-gray-900 transition-colors">GitHub</a></li>
+                        <li><a href="https://github.com/chari-dev/procwatch/blob/main/README.md" class="hover:text-gray-900 transition-colors">README</a></li>
+                        <li><a href="https://github.com/chari-dev/procwatch/blob/main/LICENSE" class="hover:text-gray-900 transition-colors">Licence</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <div class="font-semibold text-gray-900 mb-3">Contribute</div>
+                    <ul class="space-y-2 text-gray-500">
+                        <li><a href="https://github.com/chari-dev/procwatch/blob/main/CONTRIBUTING.md" class="hover:text-gray-900 transition-colors">Contributing</a></li>
+                        <li><a href="https://github.com/chari-dev/procwatch/issues" class="hover:text-gray-900 transition-colors">Issues</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div class="border-t border-gray-100 py-6 text-center text-xs text-gray-400">
+            © <span id="year"></span> Procwatch · open source under MIT
+        </div>
+    </footer>
+
+    <script>
+        document.getElementById('year').textContent = new Date().getFullYear();
+
+        /* One handler for every copy button: the target's id lives on the
+           button, so adding a third command later is markup only. */
+        Array.prototype.forEach.call(document.querySelectorAll('.copy-btn'), function (btn) {
+            btn.addEventListener('click', function () {
+                var source = document.getElementById(btn.getAttribute('data-copy'));
+                var text = source ? source.textContent.trim() : '';
+                var done = function () {
+                    btn.querySelector('.copy-icon').classList.add('hidden');
+                    btn.querySelector('.check-icon').classList.remove('hidden');
+                    setTimeout(function () {
+                        btn.querySelector('.copy-icon').classList.remove('hidden');
+                        btn.querySelector('.check-icon').classList.add('hidden');
+                    }, 1600);
+                };
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(done).catch(function () {
+                        fallbackCopy(text); done();
+                    });
+                } else {
+                    fallbackCopy(text); done();
+                }
+            });
+        });
+
+        function fallbackCopy(text) {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'absolute';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch (e) {}
+            document.body.removeChild(ta);
+        }
+    </script>
+</body>
+</html>
