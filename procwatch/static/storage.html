@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="procwatch-token" content="__PROCWATCH_TOKEN__">
+<title>Storage · Procwatch</title>
+<style>
+/* Storage: where the disk went. Three panes, the same three the network
+   monitor uses -- the list of applications, the picture of the volume, and
+   everything known about whatever is selected.
+
+   This was a sheet over the dashboard, which meant a full-screen question was
+   being asked in a panel that refreshes itself every two seconds behind it.
+   It is its own page for the same reason the network monitor is: it is a
+   thing you go and look at, not a card you glance at.
+
+   Colours, spacing and the pane widths are lifted from the network monitor
+   deliberately. Two windows that do different jobs should still obviously
+   belong to the same program. */
+:root{
+  color-scheme:dark;
+  --bg:#0a0a0c; --card:#131317; --line:#26262c; --raise:#1b1b21;
+  --stripe:#17171c;
+  --ink:#fafafa; --ink2:#a3a3ad; --ink3:#6d6d78;
+  --s1:#3b82f6; --s2:#22c55e; --s3:#f59e0b; --s4:#a855f7; --s5:#ec4899;
+  --s6:#14b8a6; --s7:#ef4444; --s8:#8b5cf6; --s9:#eab308;
+  --ok:#22c55e; --other:#52525b;
+  --sel:rgba(59,130,246,.17); --hover:rgba(255,255,255,.04);
+  --r:12px;
+}
+@media (prefers-color-scheme:light){
+  :root:where(:not([data-theme=dark])){
+    color-scheme:light;
+    --bg:#f8f8f9; --card:#ffffff; --line:#e6e6ea; --raise:#f1f1f4;
+    --stripe:#fafafb;
+    --ink:#0f0f12; --ink2:#55555f; --ink3:#8b8b95;
+    --s1:#2563eb; --s5:#db2777; --other:#a1a1aa;
+    --sel:rgba(37,99,235,.13); --hover:rgba(0,0,0,.04);
+  }
+}
+:root[data-theme=light]{
+  color-scheme:light;
+  --bg:#f8f8f9; --card:#ffffff; --line:#e6e6ea; --raise:#f1f1f4;
+  --stripe:#fafafb;
+  --ink:#0f0f12; --ink2:#55555f; --ink3:#8b8b95;
+  --s1:#2563eb; --s5:#db2777; --other:#a1a1aa;
+  --sel:rgba(37,99,235,.13); --hover:rgba(0,0,0,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);
+  font:12.5px/1.45 ui-sans-serif,-apple-system,BlinkMacSystemFont,"SF Pro Text",
+  system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;overflow:hidden;display:flex}
+.num{font-variant-numeric:tabular-nums}
+.muted{color:var(--ink3)}
+
+/* ---- left: what is taking the room ------------------------------------- */
+#side{width:298px;flex:none;height:100%;display:flex;flex-direction:column;
+  background:var(--card);border-right:1px solid var(--line)}
+#searchbar{flex:none;padding:8px 10px 10px;border-bottom:1px solid var(--line)}
+#back{display:inline-flex;align-items:center;gap:4px;font-size:11px;
+  color:var(--ink3);text-decoration:none;margin-bottom:7px}
+#back:hover{color:var(--ink)}
+#search{width:100%;padding:6px 9px;border-radius:8px;font:inherit;
+  font-size:11.5px;background:var(--raise);color:var(--ink);
+  border:1px solid var(--line);outline:none}
+#search:focus{border-color:var(--s1)}
+#modes{display:flex;gap:4px;margin-top:8px}
+#modes button{flex:1;font:inherit;font-size:10.5px;padding:3px 0;
+  border-radius:7px;background:var(--raise);color:var(--ink3);
+  border:1px solid var(--line);cursor:pointer}
+#modes button:hover{color:var(--ink)}
+#modes button.on{background:var(--s1);border-color:var(--s1);color:#fff}
+#list{flex:1;overflow-y:auto;padding:4px 0 10px}
+.row{display:flex;align-items:center;gap:8px;padding:5px 11px;cursor:pointer;
+  font-size:12px}
+.row:hover{background:var(--hover)}
+.row.on{background:var(--sel)}
+.icon{width:19px;height:19px;border-radius:5px;flex:none;position:relative;
+  display:flex;align-items:center;justify-content:center;overflow:hidden;
+  font-size:8px;font-weight:700;color:#fff}
+.icon img{position:absolute;inset:0;width:100%;height:100%;opacity:0}
+.icon.has img{opacity:1}
+.icon.has i{opacity:0}
+.rowname{flex:1;min-width:0;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.rowbar{width:54px;height:5px;flex:none;border-radius:3px;
+  background:var(--raise);overflow:hidden}
+.rowbar i{display:block;height:100%;border-radius:3px;background:var(--s1)}
+.rowsize{width:56px;flex:none;text-align:right;color:var(--ink2);font-size:11px}
+.empty{padding:26px 16px;text-align:center;color:var(--ink3);font-size:11.5px}
+.empty b{display:block;color:var(--ink2);margin-bottom:3px}
+
+/* ---- middle: the volume, drawn ------------------------------------------
+   A treemap, because area is bytes and there is no axis to read. The biggest
+   thing is the biggest rectangle; that is the whole instruction. */
+#main{flex:1;min-width:0;height:100%;display:flex;flex-direction:column;
+  background:var(--bg)}
+#crumbs{flex:none;padding:11px 14px 9px;border-bottom:1px solid var(--line);
+  display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+#crumbs h1{font-size:15px;font-weight:600;letter-spacing:-.01em}
+#trail{font-size:11.5px;color:var(--ink3);min-width:0}
+#trail a{color:var(--ink2);text-decoration:none;cursor:pointer}
+#trail a:hover{color:var(--ink);text-decoration:underline}
+#trail span{color:var(--ink3)}
+#mapwrap{flex:1;min-height:0;position:relative;padding:12px 14px}
+#treemap{position:relative;width:100%;height:100%;border-radius:var(--r);
+  overflow:hidden;background:var(--card)}
+/* The title follows what is on screen: "where the disk went" is a map's
+   caption, and a list of files wants to say it is a list of files. */
+#crumbs h1 small{display:block;font-size:11px;font-weight:400;
+  color:var(--ink3);letter-spacing:0;margin-top:1px}
+.tile{position:absolute;overflow:hidden;cursor:pointer;
+  border:1px solid rgba(0,0,0,.28);
+  display:flex;flex-direction:column;justify-content:flex-end;
+  padding:5px 7px;transition:filter .12s}
+.tile:hover{filter:brightness(1.18)}
+/* ---- the file list -------------------------------------------------------
+   Once there are no folders left, the picture stops being a picture. A
+   treemap answers "which of these is the big one" -- a real question about
+   nested folders whose sizes span orders of magnitude. Forty music files
+   within a few megabytes of each other produce forty near-identical
+   rectangles, which is a worse way to read a sorted list than a sorted list.
+   So at the leaf it becomes one. */
+#filelist{position:absolute;inset:0;overflow-y:auto;padding:2px 2px 8px}
+#filelist.picking{bottom:46px}
+/* The bulk bar only exists while something is ticked, so the list keeps its
+   full height until there is something to say. */
+#fbar{position:absolute;left:0;right:0;bottom:0;height:46px;display:none;
+  align-items:center;gap:10px;padding:0 12px;background:var(--card);
+  border-top:1px solid var(--line)}
+#fbar.on{display:flex}
+#fbar .count{flex:1;min-width:0;font-size:12px;color:var(--ink2)}
+#fbar .count b{color:var(--ink)}
+#fbar button{font:inherit;font-size:11.5px;padding:5px 11px;border-radius:8px;
+  cursor:pointer;background:var(--raise);color:var(--ink2);
+  border:1px solid var(--line)}
+#fbar button:hover{color:var(--ink)}
+#fbar button.danger{width:auto;margin:0;color:#ef4444;
+  border-color:rgba(239,68,68,.45);background:transparent}
+.frow input{flex:none;accent-color:var(--s1);margin:0}
+#fmore{display:block;width:calc(100% - 24px);margin:8px 12px 4px;padding:8px 0;
+  font:inherit;font-size:11.5px;border-radius:9px;cursor:pointer;
+  background:var(--raise);color:var(--ink2);border:1px solid var(--line)}
+#fmore:hover{color:var(--ink);border-color:var(--ink3)}
+.fnote{padding:6px 14px 10px;font-size:11px;color:var(--ink3)}
+.frow{display:flex;align-items:center;gap:11px;padding:7px 12px;
+  border-radius:9px;cursor:pointer;font-size:12.5px}
+.frow:hover{background:var(--hover)}
+.frow.on{background:var(--sel)}
+.frow .fk{width:8px;height:8px;border-radius:2px;flex:none}
+.frow .fn{flex:1;min-width:0;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.frow .fbar{width:120px;height:5px;flex:none;border-radius:3px;
+  background:var(--raise);overflow:hidden}
+.frow .fbar i{display:block;height:100%;border-radius:3px}
+.frow .fs{width:74px;flex:none;text-align:right;color:var(--ink);
+  font-size:12px;font-variant-numeric:tabular-nums}
+.frow .fkind{width:52px;flex:none;text-align:right;color:var(--ink3);
+  font-size:11px}
+.tname{font-size:11px;font-weight:600;color:#fff;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.tsize{font-size:10px;color:rgba(255,255,255,.86);
+  text-shadow:0 1px 3px rgba(0,0,0,.6)}
+#mapmsg{position:absolute;inset:0;display:flex;align-items:center;
+  justify-content:center;color:var(--ink3);font-size:12px;text-align:center;
+  padding:0 30px;line-height:1.6}
+
+/* ---- right: the numbers -------------------------------------------------- */
+#inspector{width:330px;flex:none;height:100%;display:flex;
+  flex-direction:column;background:var(--card);border-left:1px solid var(--line)}
+#inspbody{flex:1;overflow-y:auto;padding:15px 15px 24px}
+#inspfoot{flex:none;border-top:1px solid var(--line);background:var(--stripe);
+  padding:10px 12px 12px}
+.ihead{display:flex;align-items:center;gap:11px;margin-bottom:13px}
+.ihead .icon{width:38px;height:38px;border-radius:10px;font-size:15px}
+.ihead h1{font-size:17px;font-weight:600;min-width:0;letter-spacing:-.01em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stats{display:flex;gap:8px;margin-bottom:15px}
+.stat{flex:1;border-radius:9px;padding:8px 10px;background:var(--raise)}
+.stat b{display:block;font-size:15px;font-weight:650;letter-spacing:-.01em}
+.stat span{font-size:10px;color:var(--ink3);text-transform:uppercase;
+  letter-spacing:.05em}
+.sect{border-top:1px solid var(--line);padding-top:9px;margin-top:9px}
+.sect>h2{font-size:11.5px;font-weight:600;color:var(--ink2);margin-bottom:5px}
+.kv{display:flex;gap:10px;padding:2.5px 0;font-size:11.5px}
+.kv dt{width:104px;flex:none;color:var(--ink3)}
+.kv dd{flex:1;min-width:0;word-break:break-word}
+.bd{display:flex;align-items:center;gap:8px;padding:3.5px 0;font-size:11.5px}
+.bdname{flex:1;min-width:0;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;color:var(--ink2)}
+.bdbar{width:58px;height:5px;flex:none;border-radius:3px;
+  background:var(--raise);overflow:hidden}
+.bdbar i{display:block;height:100%;border-radius:3px;background:var(--s1)}
+.bdval{width:58px;flex:none;text-align:right;color:var(--ink);font-size:11px}
+
+/* The volume bar: used, and what is actually reclaimable. */
+#volbar{height:9px;border-radius:5px;background:var(--raise);overflow:hidden;
+  display:flex;margin:2px 0 7px}
+#volbar i{display:block;height:100%}
+#volnote{font-size:11px;color:var(--ink3);line-height:1.5}
+#scan{width:100%;margin-top:9px;padding:7px 0;border-radius:8px;font:inherit;
+  font-size:11.5px;font-weight:600;background:var(--s1);color:#fff;
+  border:none;cursor:pointer}
+#scan:hover{filter:brightness(1.1)}
+#scan[disabled]{background:var(--raise);color:var(--ink3);cursor:default;
+  filter:none}
+#revealone{width:100%;margin-top:9px;padding:7px 0;border-radius:8px;
+  font:inherit;font-size:11.5px;background:var(--raise);color:var(--ink2);
+  border:1px solid var(--line);cursor:pointer}
+#revealone:hover{color:var(--ink);border-color:var(--ink3)}
+#scanprog{font-size:10.5px;color:var(--ink3);margin-top:5px;text-align:center}
+
+/* Anything that removes something is red and says so. */
+.danger{width:100%;margin-top:9px;padding:7px 0;border-radius:8px;font:inherit;
+  font-size:11.5px;font-weight:600;background:transparent;color:#ef4444;
+  border:1px solid rgba(239,68,68,.45);cursor:pointer}
+.danger:hover{background:rgba(239,68,68,.12)}
+.danger[disabled]{color:var(--ink3);border-color:var(--line);cursor:default;
+  background:transparent}
+.gtitle{font-size:10.5px;color:var(--ink3);text-transform:uppercase;
+  letter-spacing:.05em;margin:8px 0 3px}
+.pick{display:flex;align-items:flex-start;gap:8px;padding:3px 0;
+  font-size:11.5px;cursor:pointer}
+.pick:hover{color:var(--ink)}
+.pick input{margin-top:2px;flex:none;accent-color:var(--s1)}
+.pname{flex:1;min-width:0;word-break:break-word;color:var(--ink2)}
+.pname em{display:block;font-style:normal;font-size:10.5px;color:var(--ink3)}
+.pval{flex:none;color:var(--ink);font-size:11px}
+</style>
+</head>
+<body>
+
+<div id="side">
+  <div id="searchbar">
+    <a id="back" href="/">&#8249; Dashboard</a>
+    <input id="search" type="search" placeholder="Search" autocomplete="off">
+    <div id="modes">
+      <button data-mode="apps" class="on">Apps</button>
+      <button data-mode="kinds">Kinds</button>
+      <button data-mode="owners">Owners</button>
+      <button data-mode="files">Files</button>
+    </div>
+  </div>
+  <div id="list"><div class="empty"><b>Reading the volume</b>This takes a
+    moment the first time.</div></div>
+</div>
+
+<div id="main">
+  <div id="crumbs">
+    <h1 id="maph1">Where the disk went</h1>
+    <div id="trail"></div>
+  </div>
+  <div id="mapwrap">
+    <div id="treemap"></div>
+    <div id="mapmsg">Reading the volume&hellip;</div>
+  </div>
+</div>
+
+<aside id="inspector">
+  <div id="inspbody"></div>
+  <div id="inspfoot">
+    <div id="volnote">&mdash;</div>
+    <div id="volbar"></div>
+    <button id="scan" type="button">Scan the whole disk</button>
+    <div id="scanprog"></div>
+  </div>
+</aside>
+
+<script>
+"use strict";
+var esc = function (t) {
+  return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) {
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+};
+
+/* Bytes, at the precision a person reads rather than the precision stored.
+   Matches the dashboard's own formatter so the same number reads the same in
+   both windows. */
+var fmtB = function (n) {
+  n = Math.max(0, n || 0);
+  if (n >= 1e12) { return (n / 1e12).toFixed(2) + " TB"; }
+  if (n >= 1e9) { return (n / 1e9).toFixed(n >= 1e10 ? 0 : 1) + " GB"; }
+  if (n >= 1e6) { return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + " MB"; }
+  if (n >= 1e3) { return (n / 1e3).toFixed(0) + " kB"; }
+  return Math.round(n) + " B";
+};
+
+var TOKEN = (document.querySelector('meta[name="procwatch-token"]') || {})
+  .content || "";
+var params = new URLSearchParams(location.search);
+var KEY = params.get("key") || "";
+var DEVICE = params.get("peer") || "";
+
+var api = function (path, extra) {
+  var query = [];
+  Object.keys(extra || {}).forEach(function (k) {
+    if (extra[k] !== undefined && extra[k] !== null && extra[k] !== "") {
+      query.push(encodeURIComponent(k) + "=" + encodeURIComponent(extra[k]));
+    }
+  });
+  if (KEY) { query.push("key=" + encodeURIComponent(KEY)); }
+  if (!DEVICE) { return path + (query.length ? "?" + query.join("&") : ""); }
+  return "/api/remote?peer=" + encodeURIComponent(DEVICE) +
+    "&path=" + encodeURIComponent(path) +
+    (query.length ? "&" + query.join("&") : "");
+};
+
+var initials = function (name) {
+  var parts = String(name || "?").replace(/\.app$/, "").split(/[\s._-]+/);
+  return ((parts[0] || "?")[0] + ((parts[1] || "")[0] || "")).toUpperCase();
+};
+
+var HUES = ["--s1", "--s2", "--s3", "--s4", "--s5", "--s6", "--s7", "--s8",
+            "--s9"];
+var css = function (name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name)
+    .trim() || "#3b82f6";
+};
+/* Colour by name, not by rank, so a folder keeps its colour when you drill in
+   and come back rather than the whole picture repainting. */
+var hue = function (name) {
+  var h = 0;
+  for (var i = 0; i < String(name).length; i++) {
+    h = (h * 31 + String(name).charCodeAt(i)) & 0x7fffffff;
+  }
+  return css(HUES[h % HUES.length]);
+};
+
+var iconTag = function (name, bundle, size) {
+  var box = '<span class="icon" style="background:' + hue(name) + '"><i>' +
+    esc(initials(name)) + "</i>";
+  if (bundle) {
+    box += '<img alt="" src="' + api("/api/icon", {size: size || 64,
+      path: bundle}) + '" onload="this.parentNode.classList.add(\'has\')">';
+  }
+  return box + "</span>";
+};
+
+/* ---- state ---------------------------------------------------------------
+   UNDER is the folder being looked at. It is what makes the treemap a place
+   you can walk into rather than one picture of the whole volume. */
+var DATA = null;
+var UNDER = "";
+var MODE = "apps";
+var FILTER = "";
+var SEL = null;
+/* Which files are ticked for removal, keyed by full path so the set survives
+   the list being redrawn under it -- which it is, every time the folder is
+   re-read. */
+var FPICK = {};
+/* How many file rows are on screen. A folder can hold thousands and the DOM
+   does not enjoy all of them at once, so it grows on request rather than
+   stopping silently at some number nobody was told about. */
+var FSHOWN = 250;
+var FSTEP = 500;
+var SCANNING = false;
+var TIMER = null;
+
+/* ---- the treemap ---------------------------------------------------------
+   Squarified, not sliced. The naive layout cuts one strip per item and makes
+   slivers a thousand pixels long and four wide, which cannot be labelled or
+   clicked; squarifying keeps each rectangle near square, which is what makes
+   the areas comparable by eye. */
+var squarify = function (items, x, y, w, h) {
+  var out = [];
+  var total = items.reduce(function (a, i) { return a + i.value; }, 0);
+  if (total <= 0 || w <= 0 || h <= 0) { return out; }
+  var scale = (w * h) / total;
+  var rest = items.slice();
+  var row = [];
+
+  var worst = function (run, side) {
+    if (!run.length) { return Infinity; }
+    var sum = run.reduce(function (a, i) { return a + i.value * scale; }, 0);
+    var top = Math.max.apply(null, run.map(function (i) {
+      return i.value * scale; }));
+    var low = Math.min.apply(null, run.map(function (i) {
+      return i.value * scale; }));
+    return Math.max((side * side * top) / (sum * sum),
+                    (sum * sum) / (side * side * low));
+  };
+
+  var place = function (run, px, py, pw, ph, horizontal) {
+    var sum = run.reduce(function (a, i) { return a + i.value * scale; }, 0);
+    var thick = horizontal ? sum / pw : sum / ph;
+    var at = 0;
+    run.forEach(function (item) {
+      var area = item.value * scale;
+      var length = thick > 0 ? area / thick : 0;
+      out.push(horizontal
+        ? {item: item, x: px + at, y: py, w: length, h: thick}
+        : {item: item, x: px, y: py + at, w: thick, h: length});
+      at += length;
+    });
+    return thick;
+  };
+
+  while (rest.length) {
+    var horizontal = w >= h;
+    var side = horizontal ? h : w;
+    while (rest.length) {
+      var next = row.concat([rest[0]]);
+      if (row.length && worst(next, side) > worst(row, side)) { break; }
+      row.push(rest.shift());
+    }
+    var thick = place(row, x, y, w, h, !horizontal);
+    if (horizontal) { x += thick; w -= thick; } else { y += thick; h -= thick; }
+    row = [];
+    if (w < 1 || h < 1) { break; }
+  }
+  return out;
+};
+
+var shortly = function (path) {
+  return String(path || "").replace(/^\/Users\/[^/]+/, "~");
+};
+
+/* What the treemap draws for wherever you are standing.
+   Folders while there are folders, and the files themselves once there are
+   not. Drawing only folders meant the last step of every drill-down was an
+   empty rectangle saying "nothing measured under here" -- when in fact the
+   thing taking the space was right there, it was just a file rather than a
+   directory, and files were not on the picture. It also meant the one thing
+   you would want to delete was the one thing you could not select. */
+var tileRows = function () {
+  var dirs = ((DATA && DATA.dirs) || []).filter(function (r) {
+    return r.bytes > 0;
+  }).map(function (r) {
+    return {path: r.path, bytes: r.bytes, isFile: false};
+  });
+  // No slice: a list scrolls, so there is no reason to hide the tail of it.
+  var files = ((DATA && DATA.files) || []).filter(function (f) {
+    return f.bytes > 0;
+  }).map(function (f) {
+    return {path: f.path, bytes: f.bytes, isFile: true, kind: f.kind};
+  });
+
+  if (!dirs.length) { return files; }
+
+  /* Both, in one picture, ranked together.
+     A folder that holds subfolders and a 6 GB archive was showing only the
+     subfolders, so the largest single thing in the room was the one thing
+     missing from the map of it. Area is bytes regardless of what a thing is,
+     and the two kinds are told apart by their edge rather than by being on
+     separate screens.
+
+     Files are capped here and folders are not: the folder count is whatever
+     the scan found worth naming, while a directory can hold thousands of
+     files and a treemap of thousands of rectangles is not a picture. The ones
+     dropped are the smallest, and the full set is one click away in the list
+     below the map. */
+  var TILE_FILES = 40;
+  var shown = files.slice(0, TILE_FILES);
+  return dirs.concat(shown).sort(function (a, b) { return b.bytes - a.bytes; });
+};
+
+var drawTreemap = function () {
+  var box = document.getElementById("treemap");
+  var msg = document.getElementById("mapmsg");
+  var rows = tileRows();
+  if (!rows.length) {
+    box.innerHTML = "";
+    msg.textContent = SCANNING
+      ? "Walking the disk… the picture fills in as it goes."
+      : (DATA ? "Nothing over the scan's size floor is directly inside this "
+              + "folder — everything here is smaller than it records."
+              : "Reading the volume…");
+    msg.style.display = "flex";
+    return;
+  }
+  msg.style.display = "none";
+
+  /* Which view, decided by whether there is anywhere left to go -- not by
+     what happens to be biggest. Sorting mixed contents by size means the
+     first row is often a file even in a folder full of subfolders, and
+     keying the view off it flipped the map to a list at random. */
+  var anyFolder = rows.some(function (r) { return !r.isFile; });
+  var fileCount = rows.filter(function (r) { return r.isFile; }).length;
+
+  var title = document.getElementById("maph1");
+  if (title) {
+    title.innerHTML = anyFolder
+      ? "Where the disk went<small>Area is size &middot; folders open, " +
+        "dashed tiles are files &middot; " + fileCount + " file" +
+        (fileCount === 1 ? "" : "s") + " shown here</small>"
+      : "Files here<small>" + rows.length + " file" +
+        (rows.length === 1 ? "" : "s") + ", biggest first &middot; read from " +
+        "the folder just now, not from the last scan</small>";
+  }
+
+  // Nowhere left to descend: this is a list of files, so draw a list of files.
+  if (!anyFolder) {
+    var most = rows[0].bytes || 1;
+    var picked = 0, pickedBytes = 0;
+    rows.forEach(function (r) {
+      if (FPICK[r.path]) { picked += 1; pickedBytes += r.bytes; }
+    });
+    var all = rows;
+    // Anything the server had to drop travels on the last row it did send.
+    var dropped = 0;
+    all.forEach(function (r) { if (r.truncated) { dropped = r.truncated; } });
+    rows = all.slice(0, FSHOWN);
+    box.innerHTML = '<div id="filelist"' + (picked ? ' class="picking"' : "") +
+      ">" + rows.map(function (row) {
+      var name = String(row.path).split("/").pop() || row.path;
+      return '<div class="frow' + (FPICK[row.path] ? " on" : "") +
+        '" data-path="' + esc(row.path) + '" title="' + esc(shortly(row.path)) +
+        '"><input type="checkbox"' + (FPICK[row.path] ? " checked" : "") + ">" +
+        '<span class="fk" style="background:' + hue(row.kind || name) +
+        '"></span><span class="fn">' + esc(name) + "</span>" +
+        '<span class="fbar"><i style="width:' +
+        Math.max(3, Math.round(100 * row.bytes / most)) +
+        '%;background:' + hue(row.kind || name) + '"></i></span>' +
+        '<span class="fs">' + esc(fmtB(row.bytes)) + "</span>" +
+        '<span class="fkind">' + esc(row.kind || "") + "</span></div>";
+    }).join("") +
+      (all.length > rows.length
+        ? '<button id="fmore">Show ' +
+          Math.min(FSTEP, all.length - rows.length) + " more &middot; " +
+          (all.length - rows.length) + " left</button>"
+        : "") +
+      (dropped
+        ? '<div class="fnote">' + dropped + " smaller files in this folder " +
+          "are not listed.</div>"
+        : "") +
+      "</div>" +
+      '<div id="fbar" class="' + (picked ? "on" : "") + '">' +
+      '<span class="count"><b>' + picked + "</b> selected &middot; " +
+      esc(fmtB(pickedBytes)) + "</span>" +
+      '<button id="fall">Select all</button>' +
+      '<button id="fnone">Clear</button>' +
+      '<button class="danger" id="ftrash">Move to Trash</button></div>';
+
+    /* Whole-row toggling, and the row is the target rather than the tick box:
+       a 13px checkbox is a poor thing to aim at repeatedly, and picking
+       several files to delete is exactly a repeated aim. Shift extends from
+       the last one touched, the way every file list does. */
+    var lastAt = -1;
+    Array.prototype.forEach.call(box.querySelectorAll(".frow"),
+      function (frow, index) {
+        frow.addEventListener("click", function (event) {
+          var path = frow.dataset.path;
+          if (event.shiftKey && lastAt >= 0) {
+            var lo = Math.min(lastAt, index), hi = Math.max(lastAt, index);
+            var want = !FPICK[path];
+            for (var i = lo; i <= hi; i++) {
+              if (want) { FPICK[rows[i].path] = true; }
+              else { delete FPICK[rows[i].path]; }
+            }
+          } else {
+            if (FPICK[path]) { delete FPICK[path]; } else { FPICK[path] = true; }
+            lastAt = index;
+          }
+          // The inspector follows the last one touched, so a single click
+          // still behaves like selecting one thing.
+          MODE = "files";
+          SEL = String(path).split("/").pop();
+          Array.prototype.forEach.call(
+            document.querySelectorAll("#modes button"), function (b) {
+              b.classList.toggle("on", b.dataset.mode === "files");
+            });
+          render();
+        });
+      });
+
+    var more = document.getElementById("fmore");
+    if (more) {
+      more.addEventListener("click", function () {
+        FSHOWN += FSTEP;
+        render();
+      });
+    }
+    var everything = document.getElementById("fall");
+    if (everything) {
+      everything.addEventListener("click", function () {
+        // Every file in the folder, not merely the ones drawn so far --
+        // "Select all" that meant "all of the first 250" would be a quiet way
+        // to delete less than was asked for, or more.
+        all.forEach(function (r) { FPICK[r.path] = true; });
+        render();
+      });
+    }
+    var none = document.getElementById("fnone");
+    if (none) {
+      none.addEventListener("click", function () { FPICK = {}; render(); });
+    }
+    var trash = document.getElementById("ftrash");
+    if (trash) {
+      trash.addEventListener("click", function () {
+        var paths = all.filter(function (r) { return FPICK[r.path]; })
+                       .map(function (r) { return r.path; });
+        if (!paths.length) { return; }
+        if (!window.confirm("Move " + paths.length + " file" +
+            (paths.length === 1 ? "" : "s") + " to the Trash?\n\n" +
+            paths.slice(0, 8).map(function (p) {
+              return p.split("/").pop();
+            }).join("\n") +
+            (paths.length > 8 ? "\n… and " + (paths.length - 8) + " more" : "") +
+            "\n\n" + fmtB(pickedBytes) +
+            " — you can put them back from the Trash.")) { return; }
+        trash.disabled = true;
+        post("/api/trash", {paths: paths})
+          .then(function (d) {
+            var moved = (d.results || []).filter(function (r) { return r.ok; });
+            var refused = (d.results || []).filter(function (r) { return !r.ok; });
+            say(refused.length
+              ? moved.length + " moved, " + refused.length + " refused (" +
+                (refused[0].error || "") + ")"
+              : "Moved " + moved.length + " to the Trash.",
+              refused.length > 0);
+            // Only the ones that actually went. A refused file staying ticked
+            // is what lets you see which ones they were.
+            moved.forEach(function (r) { delete FPICK[r.path]; });
+            SEL = null;
+            load();
+          })
+          .catch(function (err) {
+            trash.disabled = false;
+            say("Could not move them: " + err.message, true);
+          });
+      });
+    }
+    return;
+  }
+
+  var W = 1000, H = 460;
+  var boxes = squarify(rows.map(function (r) {
+    return {row: r, value: r.bytes};
+  }), 0, 0, W, H);
+  var total = rows.reduce(function (a, r) { return a + r.bytes; }, 0) || 1;
+  box.innerHTML = boxes.map(function (b) {
+    var row = b.item.row;
+    var name = String(row.path).split("/").pop() || row.path;
+    var share = row.bytes / total * 100;
+    // Below this a label is illegible, but the rectangle is still the right
+    // size and still clickable, and the tooltip still says what it is.
+    var roomy = b.w > 90 && b.h > 38;
+    return '<div class="tile' + (row.isFile ? " isfile" : "") +
+      '" data-path="' + esc(row.path) + '" data-file="' +
+      (row.isFile ? "1" : "") + '" title="' +
+      esc(shortly(row.path)) + " — " + esc(fmtB(row.bytes)) +
+      " (" + share.toFixed(1) + "%)" +
+      (row.isFile ? " — click to select, then Move to Trash"
+                  : " — click to go inside") + "\">" +
+      (roomy ? '<span class="tname">' + esc(name) + "</span>" +
+               '<span class="tsize">' + esc(fmtB(row.bytes)) + "</span>" : "") +
+      "</div>";
+  }).join("");
+  Array.prototype.forEach.call(box.querySelectorAll(".tile"),
+    function (tile) {
+      tile.style.background = hue(String(tile.dataset.path).split("/").pop());
+      tile.addEventListener("click", function () {
+        // A folder is a place to go into; a file is a thing to act on. Both
+        // are rectangles, so the click has to mean different things -- and a
+        // file tile that did nothing was the reason you could see what was
+        // filling a folder and still not remove it.
+        if (tile.dataset.file) {
+          MODE = "files";
+          SEL = String(tile.dataset.path).split("/").pop();
+          Array.prototype.forEach.call(
+            document.querySelectorAll("#modes button"), function (b) {
+              b.classList.toggle("on", b.dataset.mode === "files");
+            });
+          render();
+        } else {
+          enter(tile.dataset.path);
+        }
+      });
+    });
+  // Positions are set after the elements exist so the style string stays
+  // readable above.
+  boxes.forEach(function (b, i) {
+    var tile = box.children[i];
+    if (!tile) { return; }
+    tile.style.left = (b.x / W * 100).toFixed(3) + "%";
+    tile.style.top = (b.y / H * 100).toFixed(3) + "%";
+    tile.style.width = (b.w / W * 100).toFixed(3) + "%";
+    tile.style.height = (b.h / H * 100).toFixed(3) + "%";
+  });
+};
+
+/* ---- the list ------------------------------------------------------------ */
+var listRows = function () {
+  if (!DATA) { return []; }
+  var rows = [];
+  if (MODE === "apps") {
+    rows = (DATA.apps || []).map(function (a) {
+      return {name: a.name, sub: shortly(a.path), bytes: a.bytes,
+              bundle: a.path, path: a.path, leftover: a.leftover,
+              detail: [["Bundle", fmtB(a.bundle)],
+                       ["Data and caches", fmtB(a.leftover)],
+                       ["Together", fmtB(a.bytes)],
+                       ["Where", shortly(a.path)]]};
+    });
+  } else if (MODE === "kinds") {
+    rows = (DATA.kinds || []).map(function (k) {
+      return {name: k.kind, sub: k.files + " files", bytes: k.bytes,
+              detail: [["Files", String(k.files)], ["Together", fmtB(k.bytes)]]};
+    });
+  } else if (MODE === "owners") {
+    rows = (DATA.owners || []).map(function (o) {
+      return {name: o.owner || "unattributed", sub: o.files + " files",
+              bytes: o.bytes,
+              detail: [["Files", String(o.files)], ["Together", fmtB(o.bytes)]]};
+    });
+  } else {
+    rows = (DATA.files || []).map(function (f) {
+      return {name: String(f.path).split("/").pop(), sub: shortly(f.path),
+              bytes: f.bytes, path: f.path,
+              detail: [["Size", fmtB(f.bytes)],
+                       ["On disk", fmtB(f.logical || f.bytes)],
+                       ["Kind", f.kind || "—"],
+                       ["Belongs to", f.owner || "—"],
+                       ["Where", shortly(f.path)]]};
+    });
+  }
+  if (FILTER) {
+    rows = rows.filter(function (r) {
+      return (r.name + " " + (r.sub || "")).toLowerCase().indexOf(FILTER) >= 0;
+    });
+  }
+  return rows;
+};
+
+var renderList = function () {
+  var box = document.getElementById("list");
+  var rows = listRows();
+  if (!rows.length) {
+    box.innerHTML = '<div class="empty"><b>' +
+      (DATA ? "Nothing here" : "Reading the volume") + "</b>" +
+      (DATA ? "No entry matches." : "This takes a moment the first time.") +
+      "</div>";
+    return;
+  }
+  var most = rows[0].bytes || 1;
+  box.innerHTML = rows.slice(0, 300).map(function (r, i) {
+    return '<div class="row' + (SEL === r.name ? " on" : "") +
+      '" data-i="' + i + '">' +
+      (MODE === "apps" ? iconTag(r.name, r.bundle, 64)
+        : '<span class="icon" style="background:' + hue(r.name) +
+          '"><i>' + esc(initials(r.name)) + "</i></span>") +
+      '<span class="rowname" title="' + esc(r.sub || r.name) + '">' +
+      esc(r.name) + "</span>" +
+      '<span class="rowbar"><i style="width:' +
+      Math.max(2, Math.round(100 * r.bytes / most)) + '%"></i></span>' +
+      '<span class="rowsize num">' + esc(fmtB(r.bytes)) + "</span></div>";
+  }).join("");
+  Array.prototype.forEach.call(box.querySelectorAll(".row"), function (el) {
+    el.addEventListener("click", function () {
+      var row = rows[Number(el.dataset.i)];
+      SEL = SEL === row.name ? null : row.name;
+      renderList();
+      renderInspector();
+    });
+  });
+};
+
+/* ---- the inspector ------------------------------------------------------- */
+var selected = function () {
+  var found = null;
+  listRows().forEach(function (r) { if (r.name === SEL) { found = r; } });
+  return found;
+};
+
+var renderInspector = function () {
+  var pane = document.getElementById("inspbody");
+  var row = selected();
+  if (!row) {
+    var vol = DATA && DATA.volume && DATA.volume.data;
+    var scan = DATA && DATA.scan;
+    pane.innerHTML = '<div class="ihead">' +
+      '<span class="icon" style="background:var(--s1)"><i>&#9638;</i></span>' +
+      "<h1>This volume</h1></div>" +
+      '<div class="stats">' +
+      '<div class="stat"><b>' + esc(fmtB(vol ? vol.used : 0)) +
+      "</b><span>used</span></div>" +
+      '<div class="stat"><b>' + esc(fmtB(vol ? vol.free : 0)) +
+      "</b><span>free</span></div></div>" +
+      '<div class="sect"><h2>Measured</h2>' +
+      kv("Looked under", esc(shortly((DATA && DATA.under) || "—"))) +
+      kv("Files", esc(scan ? Number(scan.files).toLocaleString() : "—")) +
+      kv("Folders", esc(scan ? Number(scan.dirs).toLocaleString() : "—")) +
+      kv("Counted", esc(scan ? fmtB(scan.bytes) : "—")) +
+      kv("Last scan", esc(scan && scan.finished_ts
+        ? new Date(scan.finished_ts * 1000).toLocaleString() : "never")) +
+      "</div>" + unreachable() + reclaimSection() +
+      '<div class="sect"><h2>Biggest folders</h2>' + folderRows() + "</div>";
+    wireReclaim();
+    return;
+  }
+  pane.innerHTML = '<div class="ihead">' +
+    (MODE === "apps" ? iconTag(row.name, row.bundle, 128)
+      : '<span class="icon" style="background:' + hue(row.name) +
+        '"><i>' + esc(initials(row.name)) + "</i></span>") +
+    "<h1>" + esc(row.name) + "</h1></div>" +
+    '<div class="stats"><div class="stat"><b>' + esc(fmtB(row.bytes)) +
+    "</b><span>on disk</span></div></div>" +
+    '<div class="sect"><h2>Detail</h2>' +
+    row.detail.map(function (pair) {
+      return kv(esc(pair[0]), esc(pair[1]));
+    }).join("") + "</div>" +
+    trashControl(row);
+  wireTrash(row);
+  wireReveal(row);
+};
+
+/* Moving something to the Trash, offered only where there is a single real
+   path to move.
+
+   Kinds and owners are groupings, not things -- "everything of type video" is
+   not a file, and a button that appeared to delete it would either do nothing
+   or do far too much. An application row is its bundle; deleting that leaves
+   its data behind, so the button says so rather than implying the app is
+   gone.
+
+   The Trash, not unlink: Finder is asked, so what is removed keeps its
+   put-back information and one gesture undoes this. */
+var trashControl = function (row) {
+  if (!row.path) { return ""; }
+  var what = MODE === "apps" ? "the application bundle" : "this file";
+  return '<div class="sect"><h2>Remove</h2>' +
+    '<div class="kv"><span class="muted">Moves ' + esc(what) +
+    " to the Trash, where you can put it back." +
+    (MODE === "apps" && row.leftover
+      ? " Its data and caches (" + esc(fmtB(row.leftover)) +
+        ") are left where they are."
+      : "") + "</span></div>" +
+    '<button id="revealone">Show in Finder</button>' +
+    '<button class="danger" id="trashone">Move to Trash</button></div>';
+};
+
+/* "Show in Finder" rather than "Open".
+   Opening a file runs it, and the one thing you are most likely to press this
+   on is the enormous unidentified thing you do not recognise. Revealing it
+   selects it in its folder, which is what you actually wanted: to see it in
+   context, check it, and decide. */
+var wireReveal = function (row) {
+  var button = document.getElementById("revealone");
+  if (!button || !row.path) { return; }
+  button.addEventListener("click", function () {
+    post("/api/reveal", {path: row.path})
+      .then(function () { say("Shown in Finder."); })
+      .catch(function (err) { say("Could not show it: " + err.message, true); });
+  });
+};
+
+var wireTrash = function (row) {
+  var button = document.getElementById("trashone");
+  if (!button || !row.path) { return; }
+  button.addEventListener("click", function () {
+    if (!window.confirm("Move to the Trash?\n\n" + row.path + "\n\n" +
+                        fmtB(row.bytes) + " — you can put it back from the "
+                        + "Trash.")) { return; }
+    button.disabled = true;
+    post("/api/trash", {paths: [row.path]})
+      .then(function (d) {
+        var first = (d.results || [])[0] || {};
+        if (first.ok) {
+          say("Moved to the Trash.");
+          SEL = null;
+        } else {
+          say(first.error || "Refused.", true);
+        }
+        load();
+      })
+      .catch(function (err) {
+        button.disabled = false;
+        say("Could not move it: " + err.message, true);
+      });
+  });
+};
+
+var kv = function (key, value) {
+  return '<dl class="kv"><dt>' + key + "</dt><dd>" + value + "</dd></dl>";
+};
+
+var folderRows = function () {
+  var rows = ((DATA && DATA.dirs) || []).slice(0, 12);
+  if (!rows.length) { return '<div class="kv"><span class="muted">not ' +
+    "measured yet</span></div>"; }
+  var most = rows[0].bytes || 1;
+  return rows.map(function (r) {
+    return '<div class="bd"><span class="bdname" title="' +
+      esc(shortly(r.path)) + '">' + esc(String(r.path).split("/").pop()) +
+      '</span><span class="bdbar"><i style="width:' +
+      Math.max(2, Math.round(100 * r.bytes / most)) + '%"></i></span>' +
+      '<span class="bdval num">' + esc(fmtB(r.bytes)) + "</span></div>";
+  }).join("");
+};
+
+/* ---- reclaiming ----------------------------------------------------------
+   The things the tool is willing to say are safe to remove: caches that
+   refill, and the leftovers of applications that are gone.
+
+   Every item is listed with its size and the reason it is here, and every one
+   is ticked individually. No "clean up 12 GB" button with the detail behind a
+   disclosure -- the whole point of the list is that you read it. The server
+   recomputes the plan and intersects it with what was ticked, so this cannot
+   be talked into removing something it never showed. */
+var CLEAN = null;
+var PICKED = {};
+
+var loadCleanup = function () {
+  return fetch(api("/api/cleanup")).then(function (r) { return r.json(); })
+    .then(function (d) { CLEAN = d; renderInspector(); })
+    .catch(function () { CLEAN = {groups: []}; });
+};
+
+var reclaimSection = function () {
+  if (!CLEAN) { return '<div class="sect"><h2>Safe to remove</h2>' +
+    '<div class="kv"><span class="muted">looking…</span></div></div>'; }
+  var groups = CLEAN.groups || [];
+  var any = groups.some(function (g) { return (g.items || []).length; });
+  if (!any) {
+    return '<div class="sect"><h2>Safe to remove</h2>' +
+      '<div class="kv"><span class="muted">Nothing obvious to reclaim.' +
+      "</span></div></div>";
+  }
+  var picked = 0, bytes = 0;
+  groups.forEach(function (g) {
+    (g.items || []).forEach(function (item) {
+      if (PICKED[item.path]) { picked += 1; bytes += item.bytes; }
+    });
+  });
+  return '<div class="sect"><h2>Safe to remove</h2>' +
+    groups.map(function (g) {
+      if (!(g.items || []).length) { return ""; }
+      return '<div class="gtitle">' + esc(g.title) + "</div>" +
+        g.items.map(function (item) {
+          return '<label class="pick" title="' + esc(item.why || "") + '">' +
+            '<input type="checkbox" data-path="' + esc(item.path) + '"' +
+            (PICKED[item.path] ? " checked" : "") + ">" +
+            '<span class="pname">' + esc(item.display || item.path) +
+            (item.why ? '<em>' + esc(item.why) + "</em>" : "") + "</span>" +
+            '<span class="pval num">' + esc(fmtB(item.bytes)) + "</span>" +
+            "</label>";
+        }).join("");
+    }).join("") +
+    '<button class="danger" id="trashmany"' + (picked ? "" : " disabled") +
+    ">" + (picked ? "Move " + picked + " to the Trash · " + fmtB(bytes)
+                  : "Nothing ticked") + "</button></div>";
+};
+
+var wireReclaim = function () {
+  Array.prototype.forEach.call(
+    document.querySelectorAll('#inspbody .pick input'), function (box) {
+      box.addEventListener("change", function () {
+        PICKED[box.dataset.path] = box.checked;
+        renderInspector();
+      });
+    });
+  var button = document.getElementById("trashmany");
+  if (!button) { return; }
+  button.addEventListener("click", function () {
+    var paths = Object.keys(PICKED).filter(function (p) { return PICKED[p]; });
+    if (!paths.length) { return; }
+    if (!window.confirm("Move " + paths.length + " item" +
+        (paths.length === 1 ? "" : "s") + " to the Trash?\n\n" +
+        paths.slice(0, 8).join("\n") +
+        (paths.length > 8 ? "\n… and " + (paths.length - 8) + " more" : "") +
+        "\n\nYou can put them back from the Trash.")) { return; }
+    button.disabled = true;
+    post("/api/cleanup", {paths: paths})
+      .then(function (d) {
+        var moved = d.moved || 0;
+        var refused = (d.results || []).filter(function (r) { return !r.ok; });
+        say(refused.length
+          ? moved + " moved, " + refused.length + " refused (" +
+            (refused[0].error || "") + ")"
+          : "Moved " + moved + " to the Trash.", refused.length > 0);
+        PICKED = {};
+        loadCleanup();
+        load();
+      })
+      .catch(function (err) {
+        button.disabled = false;
+        say("Could not remove them: " + err.message, true);
+      });
+  });
+};
+
+/* What the scan could not read, said plainly rather than left as a silent
+   shortfall between "used" and "counted". A number that does not add up and
+   does not explain itself is what makes people stop believing the tool. */
+var unreachable = function () {
+  var rec = DATA && DATA.reconcile;
+  if (!rec || !rec.missing) { return ""; }
+  var why = (DATA.blocked || []).slice(0, 4).map(function (b) {
+    return esc(shortly(b));
+  }).join("<br>");
+  return '<div class="sect"><h2>Not counted</h2>' +
+    kv("Unreadable", esc(fmtB(rec.missing))) +
+    (why ? kv("Blocked", why) : "") +
+    '<div class="kv"><span class="muted">Give Procwatch Full Disk Access in ' +
+    "System Settings to include these.</span></div></div>";
+};
+
+/* ---- the volume bar in the footer ---------------------------------------- */
+var renderFoot = function () {
+  var vol = DATA && DATA.volume && DATA.volume.data;
+  var bar = document.getElementById("volbar");
+  var note = document.getElementById("volnote");
+  if (!vol) { note.textContent = "Reading the volume…"; return; }
+  var pct = Math.max(0, Math.min(100, vol.percent || 0));
+  bar.innerHTML = '<i style="width:' + pct.toFixed(1) +
+    '%;background:var(--s1)"></i>';
+  note.innerHTML = "<b>" + esc(fmtB(vol.used)) + "</b> used of " +
+    esc(fmtB(vol.total)) + " · " + esc(fmtB(vol.free)) + " free";
+  var button = document.getElementById("scan");
+  button.disabled = SCANNING;
+  button.textContent = SCANNING ? "Scanning…" : "Scan the whole disk";
+  // A walk of a whole disk takes minutes. Without a count of what it has
+  // reached, a button that says "Scanning…" and a picture that has not
+  // changed yet are indistinguishable from a button that did nothing -- which
+  // is exactly how this looked before.
+  var prog = document.getElementById("scanprog");
+  var at = DATA && DATA.progress;
+  if (SCANNING && at) {
+    prog.textContent = Number(at.files || 0).toLocaleString() + " files · " +
+      fmtB(at.bytes || 0) + " so far";
+  } else if (SCANNING) {
+    prog.textContent = "starting…";
+  } else {
+    var scan = DATA && DATA.scan;
+    prog.textContent = scan && scan.finished_ts
+      ? "last scan " + new Date(scan.finished_ts * 1000).toLocaleString()
+      : "";
+  }
+};
+
+/* ---- moving around ------------------------------------------------------- */
+var enter = function (path) {
+  if (!path) { return; }
+  UNDER = path;
+  SEL = null;
+  // Ticks belong to the folder they were made in. Carrying them into the next
+  // one means a Move to Trash that removes files you are no longer looking at.
+  FPICK = {};
+  FSHOWN = 250;
+  /* Walking into a folder is asking what is in it. The Apps list answers a
+     different question -- what is installed on the whole disk -- and staying
+     on it meant the side pane went on describing somewhere you had left. */
+  MODE = "files";
+  Array.prototype.forEach.call(document.querySelectorAll("#modes button"),
+    function (b) { b.classList.toggle("on", b.dataset.mode === "files"); });
+  load();
+};
+
+var renderTrail = function () {
+  var trail = document.getElementById("trail");
+  var here = (DATA && DATA.under) || "";
+  if (!here) { trail.textContent = ""; return; }
+  var parts = here.split("/").filter(Boolean);
+  var out = [], at = "";
+  parts.forEach(function (part) {
+    at += "/" + part;
+    out.push('<a data-go="' + esc(at) + '">' + esc(part) + "</a>");
+  });
+  trail.innerHTML = out.join('<span> › </span>');
+  Array.prototype.forEach.call(trail.querySelectorAll("a"), function (a) {
+    a.addEventListener("click", function () { enter(a.dataset.go); });
+  });
+};
+
+var render = function () {
+  renderList();
+  drawTreemap();
+  renderInspector();
+  renderFoot();
+  renderTrail();
+};
+
+var load = function () {
+  return fetch(api("/api/space", UNDER ? {under: UNDER} : {}))
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      DATA = d;
+      SCANNING = !!d.running;
+      render();
+    })
+    .catch(function () {
+      document.getElementById("mapmsg").textContent =
+        "Could not read the disk — retrying.";
+    });
+};
+
+document.getElementById("search").addEventListener("input", function (e) {
+  FILTER = e.target.value.trim().toLowerCase();
+  renderList();
+});
+
+Array.prototype.forEach.call(document.querySelectorAll("#modes button"),
+  function (button) {
+    button.addEventListener("click", function () {
+      MODE = button.dataset.mode;
+      SEL = null;
+      Array.prototype.forEach.call(document.querySelectorAll("#modes button"),
+        function (other) { other.classList.toggle("on", other === button); });
+      renderList();
+      renderInspector();
+    });
+  });
+
+/* Every mutating call goes through here: same endpoint list the dashboard
+   uses, same token header, and -- unlike the first version of this page --
+   the reply is actually read. A POST to the wrong path answers 404, and
+   swallowing that in a catch is why "Scan the whole disk" appeared to do
+   nothing at all. */
+var post = function (path, body) {
+  return fetch(api(path), {
+    method: "POST",
+    // All three headers are load-bearing, and the server refuses without any
+    // one of them: the JSON content type forces a preflight a forged page
+    // cannot get answered, X-Procwatch cannot be set cross-origin without
+    // that same preflight, and the token is minted per server run. Sending
+    // only two of the three is a 403 that looks exactly like a dead button.
+    headers: {"Content-Type": "application/json",
+              "X-Procwatch": "1",
+              "X-Procwatch-Token": TOKEN || ""},
+    body: JSON.stringify(body || {})
+  }).then(function (r) {
+    return r.json().catch(function () { return {}; }).then(function (d) {
+      if (!r.ok) {
+        throw new Error((d && d.error) || (r.status + " " + r.statusText));
+      }
+      return d;
+    });
+  });
+};
+
+var say = function (text, bad) {
+  var note = document.getElementById("volnote");
+  note.innerHTML = '<span style="color:' + (bad ? "var(--s7)" : "var(--ok)") +
+    '">' + esc(text) + "</span>";
+};
+
+document.getElementById("scan").addEventListener("click", function () {
+  if (SCANNING) { return; }
+  SCANNING = true;
+  renderFoot();
+  post("/api/scan", {})
+    .then(function (d) {
+      // `started` is false when a scan was already going; that is not an
+      // error, and saying "started" would be a lie.
+      SCANNING = !!d.running;
+      say(d.started ? "Scan started — walking the disk…"
+                    : "A scan is already running.");
+      load();
+    })
+    .catch(function (err) {
+      SCANNING = false;
+      say("Could not start the scan: " + err.message, true);
+      renderFoot();
+    });
+});
+
+load();
+loadCleanup();
+// While a walk is running the picture fills in as it goes; when it is not,
+// this is a size rather than a rate and there is nothing to poll for.
+setInterval(function () { if (SCANNING) { load(); } }, 1500);
+</script>
+</body>
+</html>
