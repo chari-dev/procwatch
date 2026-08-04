@@ -1,0 +1,1695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="procwatch-token" content="__PROCWATCH_TOKEN__">
+<title>Network Monitor · Procwatch</title>
+<style>
+/* The network monitor: who is talking, where to, and how much. Three panes
+   in Procwatch's own colours -- the tree of applications, the globe they are
+   reaching across, and everything known about whatever is selected.
+
+   Blue arrives, pink leaves. Those are the dashboard's own --s1 and --s5, so
+   a chart here and a chart there mean the same thing. */
+:root{
+  color-scheme:dark;
+  --bg:#0a0a0c; --card:#131317; --line:#26262c; --raise:#1b1b21;
+  --stripe:#17171c;
+  --ink:#fafafa; --ink2:#a3a3ad; --ink3:#6d6d78;
+  --s1:#3b82f6; --s5:#ec4899; --l1:#7cb0ff; --l5:#f9a8d4;
+  --ok:#22c55e; --other:#52525b;
+  --recv:var(--s1); --sent:var(--s5);
+  --sel:rgba(59,130,246,.17); --hover:rgba(255,255,255,.04);
+  --r:12px;
+}
+@media (prefers-color-scheme:light){
+  :root:where(:not([data-theme=dark])){
+    color-scheme:light;
+    --bg:#f8f8f9; --card:#ffffff; --line:#e6e6ea; --raise:#f1f1f4;
+    --stripe:#fafafb;
+    --ink:#0f0f12; --ink2:#55555f; --ink3:#8b8b95;
+    --s1:#2563eb; --s5:#db2777; --l1:#1e40af; --l5:#9d174d;
+    --other:#a1a1aa;
+    --sel:rgba(37,99,235,.13); --hover:rgba(0,0,0,.04);
+  }
+}
+:root[data-theme=light]{
+  color-scheme:light;
+  --bg:#f8f8f9; --card:#ffffff; --line:#e6e6ea; --raise:#f1f1f4;
+  --stripe:#fafafb;
+  --ink:#0f0f12; --ink2:#55555f; --ink3:#8b8b95;
+  --s1:#2563eb; --s5:#db2777; --l1:#1e40af; --l5:#9d174d;
+  --other:#a1a1aa;
+  --sel:rgba(37,99,235,.13); --hover:rgba(0,0,0,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);
+  font:12.5px/1.45 ui-sans-serif,-apple-system,BlinkMacSystemFont,"SF Pro Text",
+  system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;overflow:hidden;display:flex}
+.num{font-variant-numeric:tabular-nums}
+canvas{display:block}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px;
+  border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:var(--ink3)}
+
+/* ---- sidebar ----------------------------------------------------------- */
+#side{width:298px;flex:none;height:100%;display:flex;flex-direction:column;
+  background:var(--card);border-right:1px solid var(--line)}
+#searchbar{flex:none;padding:8px 10px 10px;border-bottom:1px solid var(--line)}
+#back{display:inline-block;margin-bottom:7px;font-size:11.5px;
+  color:var(--ink3);text-decoration:none}
+#back:hover{color:var(--ink)}
+#sysfilter{float:right;font:inherit;font-size:10.5px;padding:2px 8px;
+  border:1px solid var(--line);background:var(--raise);color:var(--ink3);
+  border-radius:999px;cursor:default}
+#sysfilter:hover{color:var(--ink2)}
+#sysfilter.on{background:var(--s1);border-color:var(--s1);color:#fff;
+  font-weight:600}
+.field{display:flex;align-items:center;gap:6px;background:var(--raise);
+  border:1px solid var(--line);border-radius:8px;padding:4px 9px}
+.field svg{flex:none;opacity:.5}
+.field:focus-within{border-color:var(--s1)}
+#search{flex:1;border:0;outline:none;font:inherit;font-size:12.5px;
+  background:transparent;color:var(--ink);min-width:0}
+#search::placeholder{color:var(--ink3)}
+#tree{flex:1;overflow-y:auto;padding:4px 0 10px}
+
+.trow{display:flex;align-items:center;gap:7px;height:31px;padding:0 9px 0 6px;
+  cursor:default;user-select:none;border-radius:7px;margin:0 6px}
+.trow:hover{background:var(--hover)}
+.trow.sel{background:var(--sel)}
+.trow.sel .tname{color:var(--ink)}
+.tw{width:12px;flex:none;text-align:center;font-size:8px;color:var(--ink3)}
+/* An application's own icon, with its initials underneath. The letters are
+   what shows while the icon loads and what stays for the daemons that have
+   no bundle to take one from, so the row never sits empty. */
+.icon{width:20px;height:20px;flex:none;border-radius:5px;position:relative;
+  display:flex;align-items:center;justify-content:center;overflow:hidden;
+  font-size:9.5px;font-weight:700;color:#fff;letter-spacing:-.02em}
+.icon i{font-style:normal}
+.icon img{position:absolute;inset:0;width:100%;height:100%;display:none;
+  object-fit:contain}
+.icon.has{background:transparent!important;overflow:visible}
+.icon.has i{display:none}
+.icon.has img{display:block}
+.gicon{width:12px;height:12px;flex:none;border-radius:50%;
+  border:1.5px solid var(--ink3)}
+.tname{flex:1;min-width:0;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;font-size:12.5px}
+.trow.dom .tname{font-size:12px;color:var(--ink2)}
+.tag{flex:none;font-size:8px;font-weight:700;letter-spacing:.05em;
+  border:1px solid var(--line);border-radius:3px;padding:0 3px;
+  color:var(--ink3)}
+.spark{width:34px;height:18px;flex:none}
+.rate{width:52px;flex:none;text-align:right;font-size:10.5px;color:var(--ink3)}
+/* The off switch. Suspends the application, which is the only per-app way
+   to stop traffic without Apple's entitlement -- so it is labelled by what
+   it does to the application, not by a firewall word it has not earned. */
+.block{flex:none;font:inherit;font-size:10px;font-weight:600;padding:2px 7px;
+  border-radius:5px;border:1px solid var(--line);background:var(--raise);
+  color:var(--ink3);cursor:default;min-width:56px;text-align:center}
+.trow:hover .block{color:var(--ink2);border-color:var(--ink3)}
+.block.off{background:color-mix(in srgb,var(--s5) 22%,transparent);
+  border-color:var(--s5);color:var(--l5)}
+.block.busy{opacity:.5}
+/* Going back in time, the same span buttons the rest of Procwatch uses. */
+#spans{display:flex;gap:4px;margin-top:8px}
+#spans button{flex:1;font:inherit;font-size:10.5px;padding:3px 0;
+  border:1px solid var(--line);background:var(--raise);color:var(--ink2);
+  border-radius:6px;cursor:default}
+#spans button:hover{color:var(--ink)}
+#spans button.on{background:var(--s1);border-color:var(--s1);color:#fff;
+  font-weight:600}
+.more{padding:3px 0 7px 46px;color:var(--ink3);font-size:11.5px;cursor:default}
+.more:hover{color:var(--ink2)}
+
+#sidefoot{flex:none;border-top:1px solid var(--line);padding:9px 10px 10px;
+  background:var(--stripe)}
+.pills{display:flex;gap:7px;margin-bottom:8px}
+.pill{flex:1;display:flex;align-items:center;gap:6px;background:var(--raise);
+  border-radius:8px;padding:5px 9px;border:1px solid var(--line);
+  font-size:11px;color:var(--ink2)}
+.pill b{margin-left:auto;color:var(--ink);font-size:11.5px;font-weight:600}
+.pill i{width:6px;height:6px;border-radius:50%;flex:none;font-style:normal}
+#histo{width:100%;height:70px;background:var(--raise);
+  border:1px solid var(--line);border-radius:8px}
+#timelabel{margin-top:7px;text-align:center;font-size:10.5px;color:var(--ink3)}
+
+/* ---- globe -------------------------------------------------------------
+   The one thing on this page that is not a list. It stays dark in either
+   theme: it is a view of the night side of the world, and the traffic drawn
+   on it has to glow. */
+#mapwrap{flex:1;min-width:0;height:100%;position:relative;
+  background:radial-gradient(120% 100% at 50% 0%,#0d1a2a 0%,#060c14 55%,#04070c 100%);
+  overflow:hidden}
+#map{position:absolute;inset:0;width:100%;height:100%}
+#labels{position:absolute;inset:0;pointer-events:none}
+.plabel{position:absolute;transform:translate(-50%,-50%);
+  background:rgba(10,20,32,.66);
+  backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
+  border:1px solid rgba(140,190,235,.2);border-radius:11px;
+  padding:1.5px 8px;font-size:10.5px;white-space:nowrap;color:#d5e6f4;
+  box-shadow:0 2px 12px rgba(0,0,0,.5)}
+.plabel.me{background:rgba(236,72,153,.9);color:#fff;font-weight:650;
+  border-color:rgba(255,255,255,.45);
+  box-shadow:0 0 20px rgba(236,72,153,.6),0 2px 12px rgba(0,0,0,.5)}
+#mapnote{position:absolute;left:13px;bottom:12px;
+  background:rgba(6,14,22,.6);backdrop-filter:blur(9px);
+  -webkit-backdrop-filter:blur(9px);
+  border:1px solid rgba(140,190,235,.13);border-radius:9px;
+  padding:6px 11px;font-size:11px;color:#9fb6c8;
+  max-width:min(460px,66%);line-height:1.5}
+/* Set like every other heading in Procwatch -- the same weight and size as a
+   card title, not letter-spaced small caps, which read as a label on a
+   diagram rather than as the name of what you are looking at. */
+#maptitle{position:absolute;left:14px;top:12px;font-size:15px;font-weight:600;
+  letter-spacing:-.01em;color:#dbe7f0}
+#maptitle small{display:block;font-size:11px;font-weight:400;color:#8ba3b6;
+  letter-spacing:0;margin-top:1px}
+#map{cursor:grab}
+#map.dragging{cursor:grabbing}
+
+
+/* ---- inspector ---------------------------------------------------------
+   A column: what is selected scrolls, and the totals with the time span
+   stay pinned to the bottom where they belong to the whole window rather
+   than to whatever row is currently highlighted. */
+#inspector{width:330px;flex:none;height:100%;display:flex;
+  flex-direction:column;background:var(--card);
+  border-left:1px solid var(--line)}
+#inspbody{flex:1;overflow-y:auto;padding:15px 15px 24px}
+#inspfoot{flex:none;border-top:1px solid var(--line);background:var(--stripe);
+  padding:9px 12px 11px}
+/* A breakdown row: name, a bar for its share, and the bytes. */
+.bd{display:flex;align-items:center;gap:8px;padding:3.5px 0;font-size:11.5px;
+  cursor:default}
+.bd:hover .bdname{color:var(--ink)}
+.bddot{width:8px;height:8px;border-radius:2px;flex:none}
+.bd .icon{width:15px;height:15px;border-radius:4px;font-size:7px}
+.bdname{flex:1;min-width:0;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;color:var(--ink2)}
+.bdbar{width:62px;height:5px;flex:none;border-radius:3px;
+  background:var(--raise);overflow:hidden}
+.bdbar i{display:block;height:100%;border-radius:3px}
+.bdval{width:58px;flex:none;text-align:right;color:var(--ink);
+  font-variant-numeric:tabular-nums}
+.bdshare{width:32px;flex:none;text-align:right;color:var(--ink3);
+  font-variant-numeric:tabular-nums}
+.ihead{display:flex;align-items:center;gap:11px;margin-bottom:13px}
+.ihead .icon{width:38px;height:38px;border-radius:10px;font-size:15px}
+.ihead h1{font-size:17px;font-weight:600;min-width:0;letter-spacing:-.01em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stats{display:flex;gap:8px;margin-bottom:15px}
+.stat{flex:1;display:flex;align-items:center;gap:7px;border-radius:9px;
+  padding:7px 10px;font-size:13px;font-weight:600;border:1px solid}
+.stat.up{background:color-mix(in srgb,var(--s5) 14%,transparent);
+  border-color:color-mix(in srgb,var(--s5) 32%,transparent);color:var(--l5)}
+.stat.dn{background:color-mix(in srgb,var(--s1) 14%,transparent);
+  border-color:color-mix(in srgb,var(--s1) 32%,transparent);color:var(--l1)}
+.stat i{font-style:normal;font-size:10px}
+.sect{border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
+.sect>h2{font-size:11.5px;font-weight:600;color:var(--ink2);cursor:default;
+  user-select:none;display:flex;align-items:center;gap:7px;padding-bottom:2px}
+.sect>h2:hover{color:var(--ink)}
+.sect dl{padding:4px 0 6px}
+.kv{display:flex;gap:10px;padding:3px 0;font-size:11.5px;align-items:baseline}
+.kv dt{width:92px;flex:none;text-align:right;color:var(--ink3)}
+.kv dd{flex:1;min-width:0;word-break:break-word;color:var(--ink2)}
+.kv dd .muted{color:var(--ink3)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;
+  color:var(--ink)}
+.empty{color:var(--ink3);text-align:center;margin-top:56px;font-size:12.5px;
+  padding:0 18px;line-height:1.6}
+.empty b{display:block;color:var(--ink2);font-size:13px;margin-bottom:5px}
+@media (max-width:1120px){ #inspector{display:none} }
+@media (max-width:840px){ #mapwrap{display:none} #side{width:100%} }
+</style>
+</head>
+<body>
+
+<div id="side">
+  <div id="searchbar">
+    <!-- The way back, in the same panel. Nothing here opens a window. -->
+    <a id="back" href="/">&#8249; Dashboard</a>
+    <!-- Most of what talks to the network is macOS talking to Apple, which
+         is true and rarely what somebody came here to look at. -->
+    <button id="sysfilter" title="Show or hide the parts of macOS">
+      Your apps only</button>
+    <div class="field">
+      <svg width="11" height="11" viewBox="0 0 16 16"><circle cx="7" cy="7" r="5"
+        fill="none" stroke="currentColor" stroke-width="2"/><path d="M11 11l4 4"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input id="search" type="search" placeholder="Search" autocomplete="off"
+             spellcheck="false" aria-label="Filter applications and servers">
+    </div>
+  </div>
+  <div id="tree"><div class="empty"><b>Listening</b>The first reading arrives
+    within a few seconds.</div></div>
+</div>
+
+<div id="mapwrap">
+  <canvas id="map"></canvas>
+  <div id="labels"></div>
+  <div id="maptitle"><span id="mapwho">Where it goes</span><small id="mapsub">Drag
+    to turn the globe · scroll to zoom</small></div>
+  <div id="mapnote"></div>
+</div>
+
+<aside id="inspector">
+  <div id="inspbody">
+    <div class="empty"><b>Nothing selected</b>Choose an application or a
+      server on the left.</div>
+  </div>
+  <div id="inspfoot">
+    <div class="pills">
+      <div class="pill"><i style="background:var(--sent)"></i>sent
+        <b class="num" id="psent">—</b></div>
+      <div class="pill"><i style="background:var(--recv)"></i>received
+        <b class="num" id="precv">—</b></div>
+    </div>
+    <canvas id="histo"></canvas>
+    <div id="spans">
+      <button data-span="0" class="on">Live</button>
+      <button data-span="3600">1h</button>
+      <button data-span="21600">6h</button>
+      <button data-span="86400">24h</button>
+      <button data-span="604800">7d</button>
+      <button data-span="2592000">30d</button>
+    </div>
+    <div id="timelabel">Live · last 10 minutes</div>
+  </div>
+</aside>
+
+<script src="/world.js"></script>
+<script>
+"use strict";
+var esc = function (t) {
+  return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) {
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+};
+var fmtB = function (n) {
+  n = Math.max(0, n || 0);
+  if (n >= 1e9) { return (n / 1e9).toFixed(n >= 1e10 ? 0 : 2) + " GB"; }
+  if (n >= 1e6) { return (n / 1e6).toFixed(n >= 1e7 ? 0 : 2) + " MB"; }
+  if (n >= 1e3) { return (n / 1e3).toFixed(1) + " kB"; }
+  return Math.round(n) + " B";
+};
+var fmtR = function (n) { return fmtB(n) + "/s"; };
+/* Narrow forms for the column at the end of a row, where a full "1.42 MB/s"
+   does not fit and a truncated one is worse than a rounded one. */
+var shortBytes = function (n) {
+  n = Math.max(0, n || 0);
+  if (n >= 1e9) { return (n / 1e9).toFixed(n >= 1e10 ? 0 : 1) + "G"; }
+  if (n >= 1e6) { return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + "M"; }
+  if (n >= 1e3) { return Math.round(n / 1e3) + "k"; }
+  return Math.round(n) + "B";
+};
+var shortRate = function (n) {
+  return n > 0 ? shortBytes(n) + "/s" : "idle";
+};
+var REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* "146.75.92.158" is not an answer to "who is my browser talking to".
+   FASTLY is.
+
+   Most addresses have no reverse-DNS name at all -- a content network answers
+   from a pool of numbered hosts and never publishes a PTR record for them --
+   so waiting for one leaves a list of raw addresses, which is what this page
+   used to show. The address lookup already returns who owns the range, and
+   that is both available for effectively every address and more useful than
+   a PTR would have been: "Fastly" says more than "cache-lax-kfla7600025".
+
+   The legal suffix goes because it is noise repeated down the whole column,
+   and because it is the only difference between "FASTLY" and "Fastly, Inc." --
+   two spellings of one company that the address lookup returns for different
+   ranges, and which otherwise appear as two separate rows for the same place. */
+var tidyOrg = function (org) {
+  if (!org) { return ""; }
+  var s = String(org).replace(/^AS\d+\s+/i, "").trim();
+  var trimmed = s.replace(
+    /[,]?\s+(inc|llc|l\.l\.c|ltd|limited|corp|corporation|co|company|plc|gmbh|ag|s\.a|sa|b\.v|bv|pty|holdings)\.?$/i,
+    "").trim();
+  if (trimmed) { s = trimmed; }
+  // An all-capitals name is usually the registry shouting rather than a
+  // brand -- FASTLY is Fastly -- but a short one is an acronym that is
+  // spelled that way on purpose, and IBM must not become Ibm. Folded per
+  // word, so "OVH SAS" survives intact while "FASTLY" does not. A name that
+  // is already mixed case is left exactly as it is, so GitHub and iCloud
+  // keep their own capitals.
+  if (s && s === s.toUpperCase() && /[A-Z]/.test(s)) {
+    s = s.split(" ").map(function (word) {
+      if (word.length <= 4 || !/^[A-Z]+$/.test(word)) { return word; }
+      return word.charAt(0) + word.slice(1).toLowerCase();
+    }).join(" ");
+  }
+  return s;
+};
+
+var domainOf = function (name, host, org) {
+  if (!name || /^[0-9a-f.:]+$/i.test(name)) {
+    return tidyOrg(org) || host || name || "";
+  }
+  var parts = name.replace(/\.$/, "").split(".");
+  if (parts.length <= 2) { return parts.join("."); }
+  var second = parts[parts.length - 2];
+  var take = (/^(co|com|net|org|ac|gov|edu)$/.test(second) &&
+              parts[parts.length - 1].length <= 3) ? 3 : 2;
+  return parts.slice(-take).join(".");
+};
+
+var COLOURS = ["#3b82f6","#ec4899","#059669","#a16207","#8b5cf6",
+               "#ea580c","#16a34a","#ef4444"];
+var hue = function (name) {
+  var h = 0;
+  for (var i = 0; i < name.length; i++) { h = (h * 31 + name.charCodeAt(i)) >>> 0; }
+  return COLOURS[h % COLOURS.length];
+};
+/* The icon for one application: the real one when the bundle has one, the
+   initials when it does not. The image is loaded inside the monogram and
+   only revealed once it arrives, so nothing flickers and a 404 costs
+   nothing at all. */
+var iconTag = function (name, bundle, size) {
+  var box = '<span class="icon" style="background:' + hue(name) + '"><i>' +
+    esc(initials(name)) + "</i>";
+  if (bundle) {
+    box += '<img alt="" src="/api/icon?size=' + (size || 64) + "&path=" +
+      encodeURIComponent(bundle) +
+      '" onload="this.parentNode.classList.add(\'has\')">';
+  }
+  return box + "</span>";
+};
+
+var initials = function (name) {
+  var words = String(name).replace(/[^A-Za-z0-9 ]/g, " ").trim().split(/\s+/);
+  if (!words[0]) { return "?"; }
+  return words.length > 1 ? (words[0][0] + words[1][0]).toUpperCase()
+                          : words[0].slice(0, 2).toUpperCase();
+};
+
+/* The countries come from /world.js -- Natural Earth outlines, generated
+   rather than drawn by hand. Rings are flat runs of lon,lat. */
+var COUNTRIES = (typeof WORLD_COUNTRIES !== "undefined") ? WORLD_COUNTRIES : [];
+
+/* ---- state -------------------------------------------------------------- */
+var DATA = null;
+var WINDOW_S = 600;
+var HIST = {}, DOMPREV = {}, DOMHIST = {};
+var SEL = {kind: "all"};
+var OPEN = {}, SHOWALL = {}, FILTER = "";
+var SECT = {process: true, policy: false, signature: false, conn: true,
+            peers: true};
+/* Whether the parts of macOS are shown. Most of what talks to the network
+   on a Mac is macOS talking to Apple -- true, and rarely what somebody came
+   here to look at, so it is one press to put it away. Remembered, because
+   somebody who hides it once means it. */
+var HIDE_SYSTEM = false;
+try {
+  HIDE_SYSTEM = localStorage.getItem("procwatch.net.hidesys") === "1";
+} catch (err) { /* private browsing; the session still works */ }
+
+var SPAN = 0;          // 0 is live; otherwise seconds back from now
+var PAST = null;       // the answer from /api/nethistory
+/* The answer from /api/netmap: which peers were talking during the chosen
+   window, with where they are. Before this existed the map simply went blank
+   whenever a span other than Live was picked -- the recording knew how many
+   bytes each application moved but never wrote down who they went to, so
+   there was nothing to draw and no way to tell that from a quiet afternoon. */
+var PASTMAP = null;
+
+var pushHist = function (store, key, point) {
+  var h = store[key] || (store[key] = []);
+  h.push(point);
+  while (h.length && point.ts - h[0].ts > WINDOW_S) { h.shift(); }
+};
+
+var absorb = function (d) {
+  var now = Date.now() / 1000;
+  DATA = d;
+  pushHist(HIST, "*", {ts: now, up: d.total_out || 0, dn: d.total_in || 0});
+  (d.apps || []).forEach(function (a) {
+    pushHist(HIST, a.app, {ts: now, up: a.out_rate, dn: a.in_rate});
+    var groups = {};
+    a.conns.forEach(function (c) {
+      var key = a.app + "|" + domainOf(c.peer, c.host, c.where && c.where.org);
+      var g = groups[key] || (groups[key] = {up: 0, dn: 0});
+      g.up += c.bytes_out; g.dn += c.bytes_in;
+    });
+    Object.keys(groups).forEach(function (key) {
+      var cur = groups[key], was = DOMPREV[key];
+      if (was && now > was.ts) {
+        var dt = now - was.ts;
+        pushHist(DOMHIST, key, {ts: now,
+          up: Math.max(0, cur.up - was.up) / dt,
+          dn: Math.max(0, cur.dn - was.dn) / dt});
+      }
+      DOMPREV[key] = {ts: now, up: cur.up, dn: cur.dn};
+    });
+  });
+};
+
+/* ---- small graphs -------------------------------------------------------- */
+var fitCanvas = function (canvas) {
+  var dpr = window.devicePixelRatio || 1;
+  var w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w || !h) { return null; }
+  if (canvas.width !== Math.round(w * dpr)) {
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  }
+  var g = canvas.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  return {g: g, w: w, h: h};
+};
+
+var css = function (name) {
+  return getComputedStyle(document.documentElement)
+    .getPropertyValue(name).trim();
+};
+
+/* Sent above the line, received below. */
+var drawBars = function (canvas, hist, bars, gap) {
+  var fit = fitCanvas(canvas);
+  if (!fit) { return; }
+  var g = fit.g, w = fit.w, h = fit.h, mid = h / 2;
+  var slice = (hist || []).slice(-bars);
+  var peak = 1;
+  slice.forEach(function (p) { peak = Math.max(peak, p.up, p.dn); });
+  var bw = Math.max(1, (w - gap * (bars - 1)) / bars);
+  var sent = css("--s5"), recv = css("--s1");
+  slice.forEach(function (p, i) {
+    var x = w - (slice.length - i) * (bw + gap) + gap;
+    var up = p.up > 0 ? Math.max(1, (p.up / peak) * (mid - 1)) : 0;
+    var dn = p.dn > 0 ? Math.max(1, (p.dn / peak) * (mid - 1)) : 0;
+    if (up) { g.fillStyle = sent; g.fillRect(x, mid - up, bw, up); }
+    if (dn) { g.fillStyle = recv; g.fillRect(x, mid, bw, dn); }
+  });
+  g.strokeStyle = css("--line");
+  g.beginPath(); g.moveTo(0, mid + .5); g.lineTo(w, mid + .5); g.stroke();
+};
+
+/* ---- the globe -----------------------------------------------------------
+   Orthographic: a real sphere seen from outside, not a flat map. The view
+   eases towards whatever is being looked at rather than cutting to it --
+   fitting a rectangle to the data on every poll made the picture jump every
+   five seconds, which is the one thing a monitor must not do. */
+var VIEW = {lon: -30, lat: 22, tlon: -30, tlat: 22, zoom: 1, held: false,
+            touched: 0};
+var PULSE = 0;
+
+var toVec = function (lat, lon) {
+  var p = lat * Math.PI / 180, l = lon * Math.PI / 180;
+  return [Math.cos(p) * Math.cos(l), Math.cos(p) * Math.sin(l), Math.sin(p)];
+};
+
+/* A unit vector, turned by the current view, in screen terms. z > 0 is the
+   half of the world facing us. */
+var project = function (v, cx, cy, R, alt) {
+  var l0 = VIEW.lon * Math.PI / 180, p0 = VIEW.lat * Math.PI / 180;
+  var cl = Math.cos(l0), sl = Math.sin(l0);
+  var cp = Math.cos(p0), sp = Math.sin(p0);
+  var front = v[0] * cl + v[1] * sl;
+  var X = v[1] * cl - v[0] * sl;
+  var Y = cp * v[2] - sp * front;
+  var Z = sp * v[2] + cp * front;
+  var r = R * (1 + (alt || 0));
+  return {x: cx + r * X, y: cy - r * Y, z: Z};
+};
+
+var slerp = function (a, b, t) {
+  var dot = Math.max(-1, Math.min(1, a[0]*b[0] + a[1]*b[1] + a[2]*b[2]));
+  var th = Math.acos(dot);
+  if (th < 1e-6) { return a; }
+  var s = Math.sin(th);
+  var w1 = Math.sin((1 - t) * th) / s, w2 = Math.sin(t * th) / s;
+  return [a[0]*w1 + b[0]*w2, a[1]*w1 + b[1]*w2, a[2]*w1 + b[2]*w2];
+};
+
+var locatedPoints = function () {
+  var out = [];
+  /* A past window is answered from the recorded peer history rather than
+     from the live snapshot, which describes only this instant. Same shape
+     out, so the globe, the labels and the city tally below need no idea
+     which of the two they are drawing. */
+  if (SPAN) {
+    ((PASTMAP && PASTMAP.peers) || []).forEach(function (p) {
+      if (p.lat == null) { return; }
+      if (HIDE_SYSTEM && p.is_system) { return; }
+      if (SEL.kind === "app" && p.app !== SEL.app) { return; }
+      if (SEL.kind === "domain" &&
+          domainOf(p.ip, p.host || "", p.org) !== SEL.domain) { return; }
+      out.push({lat: p.lat, lon: p.lon,
+                city: p.city || p.country || p.ip,
+                bytes: p.bytes_in + p.bytes_out});
+    });
+    return out;
+  }
+  if (!DATA) { return out; }
+  var apps = SEL.kind === "all" ? visibleApps()
+    : visibleApps().filter(function (a) { return a.app === SEL.app; });
+  apps.forEach(function (a) {
+    a.conns.forEach(function (c) {
+      if (SEL.kind === "domain" && domainOf(c.peer, c.host, c.where && c.where.org) !== SEL.domain) {
+        return;
+      }
+      var w = c.where;
+      if (w && w.lat != null) {
+        out.push({lat: w.lat, lon: w.lon, city: w.city,
+                  bytes: c.bytes_in + c.bytes_out});
+      }
+    });
+  });
+  return out;
+};
+
+var GLOBE = {cities: [], home: null, unplaced: 0};
+
+var regroup = function () {
+  var points = locatedPoints();
+  var tally = {};
+  points.forEach(function (p) {
+    var k = p.city + "|" + p.lat + "|" + p.lon;
+    var c = tally[k] || (tally[k] = {lat: p.lat, lon: p.lon, city: p.city,
+                                     bytes: 0, n: 0});
+    c.bytes += p.bytes; c.n += 1;
+  });
+  var cities = Object.keys(tally).map(function (k) { return tally[k]; });
+  cities.sort(function (a, b) { return b.n - a.n || b.bytes - a.bytes; });
+  // This Mac's own place, from its public address -- the near end of every
+  // route. Guessing it from the busiest peer put the machine wherever its
+  // content network happened to answer from, which was often a different
+  // city and sometimes a different country.
+  var here = DATA && DATA.here;
+  GLOBE.home = here && here.lat != null
+    ? {lat: here.lat, lon: here.lon,
+       city: here.city || here.region || here.country, bytes: 0, n: 0,
+       real: true}
+    : (cities.length ? cities[0] : null);
+  GLOBE.cities = cities;
+  var total = 0, placed = 0;
+  if (SPAN) {
+    // In a past window the countable thing is a recorded peer, not an open
+    // socket -- there are no open sockets six hours ago.
+    ((PASTMAP && PASTMAP.peers) || []).forEach(function (p) {
+      if (HIDE_SYSTEM && p.is_system) { return; }
+      total += 1;
+      if (p.lat != null) { placed += 1; }
+    });
+  } else {
+    visibleApps().forEach(function (a) {
+      a.conns.forEach(function (c) {
+        total += 1;
+        if (c.where && c.where.lat != null) { placed += 1; }
+      });
+    });
+  }
+  GLOBE.unplaced = total - placed;
+  GLOBE.total = total;
+  if (GLOBE.home) {
+    VIEW.tlon = GLOBE.home.lon;
+    VIEW.tlat = Math.max(-55, Math.min(60, GLOBE.home.lat));
+  }
+};
+
+var ease = function () {
+  // A hand on the globe wins over anything the page wanted to show: turning
+  // it and having it turn back is the single most irritating thing a view
+  // like this can do. The pull towards the traffic resumes a while after
+  // the last touch.
+  if (VIEW.held || Date.now() - VIEW.touched < 12000) { return; }
+  // Shortest way round, so a peer in Tokyo does not spin the globe backwards
+  // through the Atlantic.
+  var d = ((VIEW.tlon - VIEW.lon + 540) % 360) - 180;
+  VIEW.lon += d * (REDUCED ? 1 : 0.045);
+  VIEW.lat += (VIEW.tlat - VIEW.lat) * (REDUCED ? 1 : 0.045);
+  if (!REDUCED && Math.abs(d) < 0.4) { VIEW.lon += 0.02; }  // a slow drift
+};
+
+/* Turning the globe by hand: drag with a mouse or a finger, scroll or pinch
+   to come closer. Degrees per pixel scales with the zoom, so a dragged globe
+   moves with the pointer at any size. */
+var wireGlobe = function () {
+  var canvas = document.getElementById("map");
+  var last = null, pinch = 0;
+  var span = function () {
+    return 180 / (Math.min(canvas.clientWidth, canvas.clientHeight) *
+                  0.40 * VIEW.zoom);
+  };
+  var begin = function (x, y) {
+    last = {x: x, y: y};
+    VIEW.held = true;
+    canvas.classList.add("dragging");
+  };
+  var move = function (x, y) {
+    if (!last) { return; }
+    var k = span();
+    VIEW.lon -= (x - last.x) * k;
+    VIEW.lat += (y - last.y) * k;
+    // Past the poles the world turns inside out, so the tilt stops there.
+    VIEW.lat = Math.max(-88, Math.min(88, VIEW.lat));
+    if (VIEW.lon > 180) { VIEW.lon -= 360; }
+    if (VIEW.lon < -180) { VIEW.lon += 360; }
+    last = {x: x, y: y};
+    VIEW.touched = Date.now();
+  };
+  var end = function () {
+    last = null; pinch = 0;
+    VIEW.held = false;
+    VIEW.touched = Date.now();
+    canvas.classList.remove("dragging");
+  };
+
+  canvas.addEventListener("mousedown", function (e) {
+    e.preventDefault(); begin(e.clientX, e.clientY);
+  });
+  window.addEventListener("mousemove", function (e) { move(e.clientX, e.clientY); });
+  window.addEventListener("mouseup", end);
+
+  canvas.addEventListener("touchstart", function (e) {
+    if (e.touches.length === 1) { begin(e.touches[0].clientX, e.touches[0].clientY); }
+    else if (e.touches.length === 2) {
+      last = null;
+      pinch = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
+                         e.touches[0].clientY - e.touches[1].clientY);
+    }
+  }, {passive: true});
+  canvas.addEventListener("touchmove", function (e) {
+    if (e.touches.length === 1 && last) {
+      e.preventDefault();
+      move(e.touches[0].clientX, e.touches[0].clientY);
+    } else if (e.touches.length === 2 && pinch) {
+      e.preventDefault();
+      var now = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
+                           e.touches[0].clientY - e.touches[1].clientY);
+      VIEW.zoom = Math.max(0.75, Math.min(6, VIEW.zoom * (now / pinch)));
+      pinch = now;
+      VIEW.touched = Date.now();
+    }
+  }, {passive: false});
+  canvas.addEventListener("touchend", end);
+  canvas.addEventListener("touchcancel", end);
+
+  canvas.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    VIEW.zoom = Math.max(0.75, Math.min(6, VIEW.zoom * Math.exp(-e.deltaY * 0.0016)));
+    VIEW.touched = Date.now();
+  }, {passive: false});
+
+  canvas.addEventListener("dblclick", function () {
+    VIEW.zoom = 1; VIEW.touched = 0;       // back to following the traffic
+  });
+};
+
+var drawGlobe = function () {
+  var canvas = document.getElementById("map");
+  var fit = fitCanvas(canvas);
+  if (!fit) { return; }
+  var g = fit.g, w = fit.w, h = fit.h;
+  var cx = w / 2, cy = h / 2;
+  var R = Math.min(w, h) * 0.40 * VIEW.zoom;
+
+  // Atmosphere: a halo that reaches past the limb, so the sphere sits in
+  // something rather than being pasted on.
+  var halo = g.createRadialGradient(cx, cy, R * 0.94, cx, cy, R * 1.35);
+  halo.addColorStop(0, "rgba(59,130,246,.30)");
+  halo.addColorStop(0.45, "rgba(59,130,246,.09)");
+  halo.addColorStop(1, "rgba(59,130,246,0)");
+  g.fillStyle = halo;
+  g.beginPath(); g.arc(cx, cy, R * 1.35, 0, Math.PI * 2); g.fill();
+
+  // The ocean, lit from the upper left so the sphere reads as a sphere.
+  var sea = g.createRadialGradient(cx - R * 0.42, cy - R * 0.45, R * 0.08,
+                                   cx, cy, R);
+  sea.addColorStop(0, "#1d4f7d");
+  sea.addColorStop(0.45, "#12314f");
+  sea.addColorStop(0.82, "#0a1c2e");
+  sea.addColorStop(1, "#060f1a");
+  g.save();
+  g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.clip();
+  g.fillStyle = sea; g.fillRect(cx - R, cy - R, R * 2, R * 2);
+
+  // Graticule, faint: the lines that say "sphere" before any land is drawn.
+  g.strokeStyle = "rgba(125,175,220,.11)";
+  g.lineWidth = 1;
+  var lat, lon, first, p;
+  for (lat = -60; lat <= 60; lat += 30) {
+    g.beginPath(); first = true;
+    for (lon = -180; lon <= 180; lon += 4) {
+      p = project(toVec(lat, lon), cx, cy, R, 0);
+      if (p.z <= 0) { first = true; continue; }
+      if (first) { g.moveTo(p.x, p.y); first = false; } else { g.lineTo(p.x, p.y); }
+    }
+    g.stroke();
+  }
+  for (lon = -180; lon < 180; lon += 30) {
+    g.beginPath(); first = true;
+    for (lat = -90; lat <= 90; lat += 4) {
+      p = project(toVec(lat, lon), cx, cy, R, 0);
+      if (p.z <= 0) { first = true; continue; }
+      if (first) { g.moveTo(p.x, p.y); first = false; } else { g.lineTo(p.x, p.y); }
+    }
+    g.stroke();
+  }
+
+  // The countries. Only the runs facing us are drawn, so a shape wraps round
+  // the limb instead of being smeared across the disc; borders are stroked
+  // over the fill so neighbours stay separate at any zoom.
+  var land = "rgba(41,84,79,.95)", border = "rgba(126,201,185,.42)";
+  COUNTRIES.forEach(function (country) {
+    country[2].forEach(function (ring) {
+      var run = [];
+      var flush = function (close) {
+        if (run.length > 1) {
+          g.beginPath();
+          run.forEach(function (pt, i) {
+            if (i === 0) { g.moveTo(pt.x, pt.y); } else { g.lineTo(pt.x, pt.y); }
+          });
+          if (close) { g.closePath(); }
+          g.fillStyle = land; g.fill();
+          g.strokeStyle = border; g.lineWidth = 0.7; g.stroke();
+        }
+        run = [];
+      };
+      var all = true;
+      for (var i = 0; i < ring.length; i += 2) {
+        var q = project(toVec(ring[i + 1], ring[i]), cx, cy, R, 0);
+        if (q.z > 0) { run.push(q); } else { all = false; flush(false); }
+      }
+      flush(all);
+    });
+  });
+
+  // Mist: slow banks of haze over the surface, and a cool terminator on the
+  // side turned away from the light.
+  var t = PULSE;
+  for (var i = 0; i < 3; i++) {
+    var mx = cx + Math.cos(t * 0.11 + i * 2.1) * R * 0.45;
+    var my = cy + Math.sin(t * 0.08 + i * 1.7) * R * 0.32;
+    var mist = g.createRadialGradient(mx, my, 0, mx, my, R * (0.55 + i * 0.13));
+    mist.addColorStop(0, "rgba(180,215,240,.085)");
+    mist.addColorStop(1, "rgba(180,215,240,0)");
+    g.fillStyle = mist;
+    g.fillRect(cx - R, cy - R, R * 2, R * 2);
+  }
+  var night = g.createRadialGradient(cx - R * 0.5, cy - R * 0.5, R * 0.2,
+                                     cx + R * 0.3, cy + R * 0.35, R * 1.5);
+  night.addColorStop(0, "rgba(0,0,0,0)");
+  night.addColorStop(1, "rgba(0,4,10,.78)");
+  g.fillStyle = night; g.fillRect(cx - R, cy - R, R * 2, R * 2);
+  g.restore();
+
+  // The limb itself.
+  g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2);
+  g.strokeStyle = "rgba(150,205,240,.4)"; g.lineWidth = 1.2; g.stroke();
+
+  var labels = document.getElementById("labels");
+  labels.innerHTML = "";
+  // A past window draws exactly like a live one. This used to return here
+  // with an apology, because the recording genuinely did not know who a peer
+  // was once its socket closed; the peer history removed that limit, and the
+  // early return outlived the reason for it -- so the globe stayed empty for
+  // every span while the data to fill it was already being served.
+  if (!GLOBE.cities.length) {
+    if (SPAN) {
+      document.getElementById("mapnote").textContent =
+        "Nothing was recorded talking to the network in this window.";
+    }
+    return;
+  }
+
+  var home = GLOBE.home;
+  var hv = toVec(home.lat, home.lon);
+  var hp = project(hv, cx, cy, R, 0.02);
+  var top = 1;
+  GLOBE.cities.forEach(function (c) { top = Math.max(top, c.bytes); });
+
+  // Arcs: great circles lifted off the surface, so they leave the globe and
+  // come back to it the way a route does.
+  GLOBE.cities.forEach(function (c) {
+    if (c === home) { return; }
+    var cv = toVec(c.lat, c.lon);
+    var steps = 48, pts = [];
+    var far = Math.acos(Math.max(-1, Math.min(1,
+      hv[0]*cv[0] + hv[1]*cv[1] + hv[2]*cv[2])));
+    var lift = 0.06 + far * 0.10;
+    for (var s = 0; s <= steps; s++) {
+      var u = s / steps;
+      var v = slerp(hv, cv, u);
+      pts.push(project(v, cx, cy, R, Math.sin(Math.PI * u) * lift));
+    }
+    var weight = 0.8 + Math.min(3, (c.bytes / top) * 3);
+    var seg = [];
+    var stroke = function () {
+      if (seg.length > 1) {
+        g.beginPath();
+        seg.forEach(function (q, i) {
+          if (i === 0) { g.moveTo(q.x, q.y); } else { g.lineTo(q.x, q.y); }
+        });
+        g.strokeStyle = "rgba(236,72,153,.55)";
+        g.lineWidth = weight;
+        g.shadowColor = "rgba(236,72,153,.75)";
+        g.shadowBlur = 9;
+        g.stroke();
+        g.shadowBlur = 0;
+      }
+      seg = [];
+    };
+    pts.forEach(function (q) {
+      if (q.z > -0.08) { seg.push(q); } else { stroke(); }
+    });
+    stroke();
+
+    // A pulse running the route, so the direction of the traffic is legible
+    // without a legend.
+    if (!REDUCED) {
+      var at = (PULSE * 0.22 + (c.lon + 180) / 360) % 1;
+      var pv = slerp(cv, hv, at);       // inbound: towards this Mac
+      var pp = project(pv, cx, cy, R, Math.sin(Math.PI * at) * lift);
+      if (pp.z > 0) {
+        g.beginPath(); g.arc(pp.x, pp.y, 2.4, 0, Math.PI * 2);
+        g.fillStyle = "#7cb0ff";
+        g.shadowColor = "rgba(124,176,255,.95)"; g.shadowBlur = 12;
+        g.fill(); g.shadowBlur = 0;
+      }
+    }
+  });
+
+  // Cities, as lights.
+  GLOBE.cities.forEach(function (c) {
+    var q = project(toVec(c.lat, c.lon), cx, cy, R, 0.005);
+    if (q.z <= 0) { return; }
+    var size = 2.2 + Math.min(3.4, (c.bytes / top) * 3.4);
+    var bloom = g.createRadialGradient(q.x, q.y, 0, q.x, q.y, size * 4.5);
+    bloom.addColorStop(0, "rgba(124,176,255,.6)");
+    bloom.addColorStop(1, "rgba(124,176,255,0)");
+    g.fillStyle = bloom;
+    g.beginPath(); g.arc(q.x, q.y, size * 4.5, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(q.x, q.y, size, 0, Math.PI * 2);
+    g.fillStyle = "#dbeafe"; g.fill();
+  });
+
+  // This Mac, pulsing.
+  if (hp.z > 0) {
+    var beat = REDUCED ? 0 : (Math.sin(PULSE * 2) * 0.5 + 0.5);
+    g.beginPath(); g.arc(hp.x, hp.y, 6 + beat * 5, 0, Math.PI * 2);
+    g.fillStyle = "rgba(236,72,153," + (0.28 - beat * 0.18) + ")"; g.fill();
+    g.beginPath(); g.arc(hp.x, hp.y, 4.6, 0, Math.PI * 2);
+    g.fillStyle = "#ec4899";
+    g.shadowColor = "rgba(236,72,153,.9)"; g.shadowBlur = 16;
+    g.fill(); g.shadowBlur = 0;
+    g.lineWidth = 1.6; g.strokeStyle = "rgba(255,255,255,.9)"; g.stroke();
+  }
+
+  // Labels in the DOM: crisp at any scale, and easy to keep from colliding.
+  var placed = [];
+  var fits = function (x, y) {
+    for (var i = 0; i < placed.length; i++) {
+      if (Math.abs(placed[i][0] - x) < 76 && Math.abs(placed[i][1] - y) < 16) {
+        return false;
+      }
+    }
+    placed.push([x, y]);
+    return true;
+  };
+  var add = function (x, y, text, mine) {
+    var el = document.createElement("div");
+    el.className = "plabel" + (mine ? " me" : "");
+    el.style.left = x + "px"; el.style.top = y + "px";
+    el.textContent = text;
+    labels.appendChild(el);
+  };
+  if (hp.z > 0) {
+    fits(hp.x, hp.y - 17);
+    add(hp.x, hp.y - 17, "This Mac · " + home.city, true);
+  }
+  GLOBE.cities.slice(0, 26).forEach(function (c) {
+    if (c === home) { return; }
+    var q = project(toVec(c.lat, c.lon), cx, cy, R, 0.005);
+    if (q.z <= 0.06) { return; }
+    var y = q.y - 14;
+    if (!fits(q.x, y)) { return; }
+    add(q.x, y, c.city, false);
+  });
+
+  var how = DATA && DATA.lookup
+    ? "Looked up by address"
+    : "Read from server names (lookups are off in Settings)";
+  var thing = SPAN ? " server" : " connection";
+  document.getElementById("mapnote").textContent =
+    (SPAN ? "Looking back " + spanName(SPAN) + ". " : "") +
+    GLOBE.cities.length + " location" + (GLOBE.cities.length === 1 ? "" : "s") +
+    (GLOBE.unplaced ? ", " + GLOBE.unplaced + " of " + GLOBE.total +
+      thing + (GLOBE.total === 1 ? "" : "s") + " not yet placed" : "") +
+    ". " + how + ".";
+};
+
+var frame = function () {
+  PULSE += 0.016;
+  ease();
+  drawGlobe();
+  requestAnimationFrame(frame);
+};
+
+/* ---- sidebar tree -------------------------------------------------------- */
+var domainsOf = function (a) {
+  var groups = {};
+  a.conns.forEach(function (c) {
+    var key = domainOf(c.peer, c.host, c.where && c.where.org);
+    var d = groups[key] || (groups[key] = {domain: key, up: 0, dn: 0, hosts: []});
+    d.up += c.bytes_out; d.dn += c.bytes_in; d.hosts.push(c);
+  });
+  var out = Object.keys(groups).map(function (k) { return groups[k]; });
+  out.sort(function (x, y) { return (y.up + y.dn) - (x.up + x.dn); });
+  return out;
+};
+
+/* The tree over a past window: applications and their totals, and no
+   servers -- those were never written down. */
+var renderPastTree = function () {
+  var box = document.getElementById("tree");
+  var apps = ((PAST && PAST.apps) || []).filter(function (a) {
+    if (HIDE_SYSTEM && a.is_system) { return false; }
+    return !FILTER || a.app.toLowerCase().indexOf(FILTER) !== -1;
+  });
+  if (!apps.length) {
+    box.innerHTML = '<div class="empty"><b>Nothing recorded</b>' +
+      "No network traffic was recorded in this window.</div>";
+    return;
+  }
+  box.innerHTML = apps.map(function (a) {
+    var chosen = SEL.kind === "app" && SEL.app === a.app;
+    return '<div class="trow' + (chosen ? " sel" : "") +
+      '" data-app="' + esc(a.app) + '">' +
+      '<span class="tw"></span>' +
+      iconTag(a.app, a.bundle || "") +
+      '<span class="tname">' + esc(a.app) + "</span>" +
+      (a.is_system ? '<span class="tag">SYS</span>' : "") +
+      '<canvas class="spark" data-pastspark="' + esc(a.app) + '"></canvas>' +
+      '<span class="rate num">' +
+      esc(shortBytes(a.bytes_in + a.bytes_out)) + "</span></div>";
+  }).join("");
+  Array.prototype.forEach.call(box.querySelectorAll(".trow"), function (row) {
+    row.addEventListener("click", function () {
+      SEL = {kind: "app", app: row.getAttribute("data-app")};
+      render();
+    });
+  });
+  Array.prototype.forEach.call(box.querySelectorAll("[data-pastspark]"),
+    function (c) {
+      var name = c.getAttribute("data-pastspark");
+      var app = null;
+      (PAST.apps || []).forEach(function (a) { if (a.app === name) { app = a; } });
+      drawBars(c, (app ? app.points : []).map(function (p) {
+        return {ts: p.ts, up: p.out, dn: p["in"]};
+      }), 12, 1);
+    });
+};
+
+/* Everything the page shows comes through here, so the switch reaches the
+   list, the breakdowns, the totals and the globe at once rather than only
+   the list somebody happened to be looking at. */
+var visibleApps = function () {
+  return ((DATA && DATA.apps) || []).filter(function (a) {
+    return !HIDE_SYSTEM || !a.is_system;
+  });
+};
+
+var renderTree = function () {
+  if (SPAN) { return renderPastTree(); }
+  var box = document.getElementById("tree");
+  if (!DATA) { return; }
+  var apps = visibleApps().filter(function (a) {
+    if (!FILTER) { return true; }
+    if (a.app.toLowerCase().indexOf(FILTER) !== -1) { return true; }
+    return a.conns.some(function (c) {
+      return (c.peer || c.host).toLowerCase().indexOf(FILTER) !== -1;
+    });
+  });
+  if (!apps.length) {
+    box.innerHTML = '<div class="empty"><b>Nothing matches</b>No application ' +
+      "or server here answers to that.</div>";
+    return;
+  }
+  box.innerHTML = apps.map(function (a) {
+    var open = !!OPEN[a.app];
+    var chosen = SEL.kind === "app" && SEL.app === a.app;
+    var row = '<div class="trow' + (chosen ? " sel" : "") +
+      '" data-app="' + esc(a.app) + '">' +
+      '<span class="tw">' + (open ? "▼" : "▶") + "</span>" +
+      iconTag(a.app, a.bundle) +
+      '<span class="tname">' + esc(a.app) + "</span>" +
+      (a.is_system ? '<span class="tag">SYS</span>' : "") +
+      '<canvas class="spark" data-spark="' + esc(a.app) + '"></canvas>' +
+      (READONLY
+        ? '<span class="rate num">' + esc(shortRate(a.in_rate + a.out_rate)) +
+          "</span>"
+        : '<button class="block' + (a.suspended ? " off" : "") +
+          '" data-block="' + esc(a.app) + '" title="' +
+          (a.suspended ? "Let " + esc(a.app) + " run again"
+                       : "Stop " + esc(a.app) + " using the network") + '">' +
+          (a.suspended ? "Off" : "On") + "</button>") + "</div>";
+    if (!open) { return row; }
+    var doms = domainsOf(a);
+    var limit = SHOWALL[a.app] ? doms.length : 6;
+    var rows = doms.slice(0, limit).map(function (d) {
+      var dsel = SEL.kind === "domain" && SEL.app === a.app &&
+        SEL.domain === d.domain;
+      return '<div class="trow dom' + (dsel ? " sel" : "") +
+        '" data-app="' + esc(a.app) + '" data-domain="' + esc(d.domain) + '">' +
+        '<span class="tw"></span><span class="gicon"></span>' +
+        '<span class="tname">' + esc(d.domain || "unresolved") + "</span>" +
+        '<canvas class="spark" data-domspark="' +
+        esc(a.app + "|" + d.domain) + '"></canvas>' +
+        '<span class="rate num">' + esc(shortBytes(d.up + d.dn)) +
+        "</span></div>";
+    }).join("");
+    if (doms.length > limit) {
+      rows += '<div class="more" data-more="' + esc(a.app) + '">' +
+        (doms.length - limit) + " more…</div>";
+    }
+    return row + rows;
+  }).join("");
+
+  var each = function (sel, fn) {
+    Array.prototype.forEach.call(box.querySelectorAll(sel), fn);
+  };
+  each(".trow[data-domain]", function (row) {
+    row.addEventListener("click", function (e) {
+      e.stopPropagation();
+      SEL = {kind: "domain", app: row.getAttribute("data-app"),
+             domain: row.getAttribute("data-domain")};
+      render();
+    });
+  });
+  each(".trow[data-app]:not([data-domain])", function (row) {
+    row.addEventListener("click", function () {
+      var app = row.getAttribute("data-app");
+      if (SEL.kind === "app" && SEL.app === app) { OPEN[app] = !OPEN[app]; }
+      else { OPEN[app] = true; }
+      SEL = {kind: "app", app: app};
+      render();
+    });
+  });
+  each("[data-block]", function (button) {
+    button.addEventListener("click", function (e) {
+      e.stopPropagation();
+      toggleBlock(button.getAttribute("data-block"), button);
+    });
+  });
+  each("[data-more]", function (row) {
+    row.addEventListener("click", function (e) {
+      e.stopPropagation();
+      SHOWALL[row.getAttribute("data-more")] = true;
+      renderTree();
+    });
+  });
+  each("[data-spark]", function (c) {
+    drawBars(c, HIST[c.getAttribute("data-spark")], 12, 1);
+  });
+  each("[data-domspark]", function (c) {
+    drawBars(c, DOMHIST[c.getAttribute("data-domspark")], 12, 1);
+  });
+};
+
+/* ---- the off switch ------------------------------------------------------
+   Suspending the application is the whole mechanism, so the confirmation
+   says so: what stops is the program, not a rule about its packets. */
+var TOKEN = (document.querySelector('meta[name="procwatch-token"]') || {})
+  .content || "";
+/* Served by the sharing port, which has no route to anything that acts on a
+   machine. The off switch is left out rather than shown and refused: a
+   button that cannot work is worse than one that is absent. */
+var READONLY = !!document.querySelector('meta[name="procwatch-readonly"]');
+
+/* Which machine this is about.
+
+   The dashboard has a device menu, and following its link used to land here
+   showing the machine the page was served from -- so switching to another
+   Mac and opening the monitor quietly showed you your own. The link carries
+   the device now, and every read goes through the relay, which asks that
+   machine and returns its answer.
+
+   A device is somebody else's machine, so the off switch goes with it: this
+   Mac has no business suspending an application over there, and the relay
+   is read-only in any case. */
+var DEVICE = (function () {
+  var found = /[?&]device=([^&]*)/.exec(location.search || "");
+  return found ? decodeURIComponent(found[1]) : "";
+})();
+var KEY = (function () {
+  var found = /[?&]key=([^&]*)/.exec(location.search || "");
+  return found ? decodeURIComponent(found[1]) : "";
+})();
+if (DEVICE) { READONLY = true; }
+
+/* The same shape the dashboard uses: straight through for this Mac, and
+   through the relay for anything else. */
+var api = function (path, params) {
+  var query = [];
+  Object.keys(params || {}).forEach(function (k) {
+    if (params[k] !== undefined && params[k] !== null) {
+      query.push(encodeURIComponent(k) + "=" + encodeURIComponent(params[k]));
+    }
+  });
+  if (KEY) { query.push("key=" + encodeURIComponent(KEY)); }
+  if (!DEVICE) {
+    return path + (query.length ? "?" + query.join("&") : "");
+  }
+  return "/api/remote?peer=" + encodeURIComponent(DEVICE) +
+    "&path=" + encodeURIComponent(path) +
+    (query.length ? "&" + query.join("&") : "");
+};
+
+var toggleBlock = function (name, button) {
+  var app = null;
+  ((DATA && DATA.apps) || []).forEach(function (a) {
+    if (a.app === name) { app = a; }
+  });
+  if (!app) { return; }
+  var stopping = !app.suspended;
+  if (stopping && !window.confirm(
+      "Stop " + name + " using the network?\n\n" +
+      "Procwatch cannot block one application's traffic on its own — that " +
+      "needs a system extension Apple has to authorise. What it can do is " +
+      "suspend " + name + ", and a program that is not running cannot send " +
+      "or receive anything.\n\n" +
+      "The whole application freezes, not just its network, and its windows " +
+      "will stop responding until you switch it back on. Nothing is lost " +
+      "and nothing is quit.")) {
+    return;
+  }
+  button.classList.add("busy");
+  button.textContent = stopping ? "…" : "…";
+  fetch("/api/netblock", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "X-Procwatch": "1",
+              "X-Procwatch-Token": TOKEN || ""},
+    body: JSON.stringify({app: name, stop: stopping})
+  }).then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d || !d.ok) {
+        window.alert((d && d.error) || "That did not work.");
+      }
+      tick();
+    })
+    .catch(function () {
+      button.classList.remove("busy");
+      window.alert("The recorder is not answering.");
+    });
+};
+
+/* ---- inspector ----------------------------------------------------------- */
+var section = function (key, title, rows) {
+  var open = SECT[key];
+  return '<div class="sect"><h2 data-sect="' + key + '">' +
+    '<span class="tw">' + (open ? "▼" : "▶") + "</span>" + esc(title) +
+    "</h2>" + (open ? "<dl>" + rows + "</dl>" : "") + "</div>";
+};
+var kv = function (label, value) {
+  return '<div class="kv"><dt>' + esc(label) + "</dt><dd>" + value + "</dd></div>";
+};
+var listOf = function (values, limit) {
+  var shown = values.slice(0, limit).map(esc).join("<br>");
+  if (values.length > limit) {
+    shown += '<br><span class="muted">+ ' + (values.length - limit) +
+      " more</span>";
+  }
+  return shown || '<span class="muted">none</span>';
+};
+
+/* A breakdown: what the total is made of, biggest first, each with its
+   share. Bars rather than numbers alone, because "which of these is most of
+   it" is the question and a column of byte counts answers it slowly. */
+var breakdown = function (rows, total, colour) {
+  if (!rows.length) {
+    return '<div class="kv"><dd><span class="muted">nothing yet</span></dd></div>';
+  }
+  return rows.map(function (row) {
+    var share = total > 0 ? (row.bytes / total * 100) : 0;
+    return '<div class="bd"' +
+      (row.pick ? ' data-pick="' + esc(row.pick) + '"' : "") +
+      (row.app ? ' data-pickapp="' + esc(row.app) + '"' : "") + ">" +
+      (row.bundle ? iconTag(row.name, row.bundle, 32)
+                  : '<span class="bddot" style="background:' +
+                    (colour || hue(row.name)) + '"></span>') +
+      '<span class="bdname">' + esc(row.name) + "</span>" +
+      '<span class="bdbar"><i style="width:' + share.toFixed(1) +
+      "%;background:" + (colour || hue(row.name)) + '"></i></span>' +
+      '<span class="bdval">' + esc(fmtB(row.bytes)) + "</span>" +
+      '<span class="bdshare">' + share.toFixed(0) + "%</span></div>";
+  }).join("");
+};
+
+/* Every website this Mac is talking to, with the application behind it. */
+var siteRows = function (apps) {
+  var sites = {};
+  apps.forEach(function (a) {
+    a.conns.forEach(function (c) {
+      var name = domainOf(c.peer, c.host, c.where && c.where.org);
+      var s = sites[name] || (sites[name] = {name: name, bytes: 0, apps: {},
+                                             pick: name});
+      s.bytes += c.bytes_in + c.bytes_out;
+      s.apps[a.app] = 1;
+    });
+  });
+  var rows = Object.keys(sites).map(function (k) { return sites[k]; });
+  rows.forEach(function (r) {
+    var owners = Object.keys(r.apps);
+    r.app = owners.length === 1 ? owners[0] : "";
+    if (owners.length > 1) { r.name = r.name + " · " + owners.length + " apps"; }
+  });
+  rows.sort(function (a, b) { return b.bytes - a.bytes; });
+  return rows;
+};
+
+var wireBreakdown = function (pane) {
+  Array.prototype.forEach.call(pane.querySelectorAll("[data-pick]"),
+    function (row) {
+      row.addEventListener("click", function () {
+        var app = row.getAttribute("data-pickapp");
+        if (!app) { return; }
+        OPEN[app] = true;
+        SEL = {kind: "domain", app: app, domain: row.getAttribute("data-pick")};
+        render();
+      });
+    });
+  Array.prototype.forEach.call(pane.querySelectorAll("[data-pickapp-only]"),
+    function (row) {
+      row.addEventListener("click", function () {
+        SEL = {kind: "app", app: row.getAttribute("data-pickapp-only")};
+        OPEN[SEL.app] = true;
+        render();
+      });
+    });
+};
+
+var renderInspector = function () {
+  var pane = document.getElementById("inspbody");
+  if (SPAN) {
+    var app = null;
+    ((PAST && PAST.apps) || []).forEach(function (a) {
+      if (SEL.kind === "app" && a.app === SEL.app) { app = a; }
+    });
+    var title = app ? app.app : "All Applications";
+    var win = "the last " + spanName(SPAN);
+    var pin = app ? app.bytes_in
+      : ((PAST && PAST.apps) || []).reduce(function (n, a) {
+          return n + a.bytes_in; }, 0);
+    var pout = app ? app.bytes_out
+      : ((PAST && PAST.apps) || []).reduce(function (n, a) {
+          return n + a.bytes_out; }, 0);
+    pane.innerHTML = '<div class="ihead">' +
+      (app ? iconTag(app.app, app.bundle || "", 128)
+           : '<span class="icon" style="background:var(--other)"><i>∗</i></span>') +
+      "<h1>" + esc(title) + "</h1></div>" +
+      '<div class="stats"><div class="stat up"><i>▲</i>' + esc(fmtB(pout)) +
+      '</div><div class="stat dn"><i>▼</i>' + esc(fmtB(pin)) + "</div></div>" +
+      section("conn", "Recorded traffic",
+        kv("Window", esc(win)) +
+        kv("Applications", esc(String(((PAST && PAST.apps) || []).length))) +
+        kv("Buckets", esc(String(app ? app.points.length : 0))) +
+        kv("Servers", esc(String(pastPeers().length)))) +
+      // The servers themselves, which this pane used to say were not kept.
+      section("peers", "Servers", pastPeerRows());
+    wireSections(pane);
+    return;
+  }
+  if (!DATA) { return; }
+  var apps = visibleApps();
+  var app = null;
+  if (SEL.kind !== "all") {
+    apps.forEach(function (a) { if (a.app === SEL.app) { app = a; } });
+  }
+  if (!app) {
+    // Nothing picked: the breakdown of the whole machine, which is what
+    // somebody opening this window wants first -- who is using it, and
+    // which sites that traffic is going to.
+    var byApp = apps.map(function (a) {
+      return {name: a.app, bytes: a.bytes_in + a.bytes_out,
+              app: a.app, pick: "", bundle: a.bundle};
+    }).filter(function (r) { return r.bytes > 0; });
+    byApp.sort(function (x, y) { return y.bytes - x.bytes; });
+    var appTotal = byApp.reduce(function (n, r) { return n + r.bytes; }, 0);
+    var sites = siteRows(apps);
+    var siteTotal = sites.reduce(function (n, r) { return n + r.bytes; }, 0);
+    pane.innerHTML = '<div class="ihead">' +
+      '<span class="icon" style="background:var(--other)">∗</span>' +
+      "<h1>All Applications</h1></div>" +
+      '<div class="stats"><div class="stat up"><i>▲</i>' +
+      esc(fmtR(DATA.total_out)) + '</div><div class="stat dn"><i>▼</i>' +
+      esc(fmtR(DATA.total_in)) + "</div></div>" +
+      '<div class="sect"><h2><span class="tw"></span>Most traffic ' +
+      "by application</h2>" +
+      breakdown(byApp.slice(0, 12).map(function (r) {
+        return {name: r.name, bytes: r.bytes, app: r.app, bundle: r.bundle};
+      }), appTotal) + "</div>" +
+      '<div class="sect"><h2><span class="tw"></span>Most traffic ' +
+      "by website</h2>" +
+      breakdown(sites.slice(0, 14), siteTotal) + "</div>" +
+      section("conn", "Connection Details",
+        kv("Summary over", "the last 10 minutes") +
+        kv("Applications", esc(String(apps.length))) +
+        kv("Websites", esc(String(sites.length))) +
+        kv("Connections", esc(String(apps.reduce(function (n, a) {
+          return n + a.conns.length; }, 0)))) +
+        kv("Placed", esc(GLOBE.cities.length + " location" +
+          (GLOBE.cities.length === 1 ? "" : "s"))) +
+        kv("Measured", DATA.age != null
+          ? esc(Math.round(DATA.age) + " seconds ago") : "—"));
+    // The application rows select the application; the website rows open it
+    // at that website.
+    Array.prototype.forEach.call(
+      pane.querySelectorAll(".sect:nth-of-type(1) .bd"), function (row) {
+        row.setAttribute("data-pickapp-only", row.getAttribute("data-pickapp"));
+        row.removeAttribute("data-pick");
+      });
+    wireSections(pane);
+    wireBreakdown(pane);
+    return;
+  }
+  var conns = app.conns;
+  if (SEL.kind === "domain") {
+    conns = conns.filter(function (c) {
+      return domainOf(c.peer, c.host, c.where && c.where.org) === SEL.domain;
+    });
+  }
+  var up = 0, dn = 0, names = {}, ips = {}, tcp = {}, udp = {}, protos = {},
+      places = {};
+  conns.forEach(function (c) {
+    up += c.bytes_out; dn += c.bytes_in;
+    if (c.peer) { names[c.peer] = 1; }
+    ips[c.host] = 1;
+    (c.proto.indexOf("udp") === 0 ? udp : tcp)[c.port] = 1;
+    protos[c.proto.indexOf("udp") === 0 ? "UDP" : "TCP"] = 1;
+    if (c.where && c.where.city) { places[c.where.city] = 1; }
+  });
+  var title = SEL.kind === "domain" ? SEL.domain : app.app;
+  var body = '<div class="ihead">' +
+    (SEL.kind === "domain" ? iconTag(title, "", 64)
+                           : iconTag(app.app, app.bundle, 128)) +
+    "<h1>" + esc(title) + "</h1></div>" +
+    '<div class="stats"><div class="stat up"><i>▲</i>' + esc(fmtB(up)) +
+    '</div><div class="stat dn"><i>▼</i>' + esc(fmtB(dn)) + "</div></div>";
+  if (SEL.kind === "app") {
+    // Which sites this one application's traffic actually went to.
+    var mine = siteRows([app]);
+    var mineTotal = mine.reduce(function (n, r) { return n + r.bytes; }, 0);
+    body += '<div class="sect"><h2><span class="tw"></span>Websites ' +
+      esc(app.app) + " is using</h2>" +
+      breakdown(mine.slice(0, 12).map(function (r) {
+        return {name: r.name, bytes: r.bytes, pick: r.pick, app: app.app};
+      }), mineTotal) + "</div>";
+  }
+  if (SEL.kind === "app") {
+    body += section("process", "Process",
+      kv("Path", app.path
+         ? '<span class="mono">' + esc(app.path) + "</span>"
+         : '<span class="muted">not reported</span>') +
+      kv("Code ID", app.code_id
+         ? '<span class="mono">' + esc(app.code_id) + "</span>"
+         : '<span class="muted">not a bundle</span>') +
+      kv("User", esc(app.user || "—")) +
+      kv("Processes", esc(String(app.pids.length))) +
+      kv("Kind", app.is_system ? "part of macOS" : "application"));
+    body += section("policy", "Internet Access", READONLY
+      ? kv("Status", app.suspended
+           ? "Suspended — it cannot send or receive"
+           : "Running — allowed, like everything else on that Mac") +
+        kv("Off switch", '<span class="muted">Not offered here. This is the ' +
+           "sharing port, which can read that Mac's history and nothing " +
+           "else — it has no route to anything that acts on it.</span>")
+      :
+      kv("Status", app.suspended
+         ? "Suspended by you — it cannot send or receive"
+         : "Running — allowed, like everything else on this Mac") +
+      kv("Off switch", '<span class="muted">The On/Off button beside this ' +
+         "application suspends it, which stops its traffic because a frozen " +
+         "process cannot do anything at all. Reversible, and nothing is " +
+         "quit.</span>") +
+      kv("Blocking", '<span class="muted">Procwatch cannot cut an ' +
+         "application off. Refusing traffic per application needs a network " +
+         "extension signed with an entitlement Apple grants to a developer " +
+         "account, which this tool does not have. It reports; it does not " +
+         "police. Little Snitch or LuLu do the blocking half.</span>"));
+    body += section("signature", "Code Signature",
+      kv("Identifier", app.code_id
+         ? '<span class="mono">' + esc(app.code_id) + "</span>"
+         : '<span class="muted">—</span>') +
+      kv("Location", app.path && app.path.indexOf("/System/") === 0
+         ? "Apple system volume"
+         : app.path && app.path.indexOf("/Applications/") === 0
+           ? "Applications folder"
+           : app.path ? "elsewhere on disk" : '<span class="muted">—</span>'));
+  }
+  body += section("conn", "Connection Details",
+    kv("Summary over", "the last 10 minutes") +
+    kv("Hostnames", listOf(Object.keys(names).sort(), 4)) +
+    kv("IP Addresses", listOf(Object.keys(ips).sort(), 4)) +
+    kv("TCP Port", listOf(Object.keys(tcp).sort(function (a, b) {
+      return a - b; }), 4)) +
+    kv("UDP Port", listOf(Object.keys(udp).sort(function (a, b) {
+      return a - b; }), 4)) +
+    kv("Protocols", esc(Object.keys(protos).sort().join(", ") || "—")) +
+    kv("Locations", listOf(Object.keys(places).sort(), 4)) +
+    kv("Connects", esc(conns.length + " open, 0 denied")));
+  pane.innerHTML = body;
+  wireSections(pane);
+  wireBreakdown(pane);
+};
+
+var wireSections = function (pane) {
+  Array.prototype.forEach.call(pane.querySelectorAll("[data-sect]"),
+    function (head) {
+      head.addEventListener("click", function () {
+        var key = head.getAttribute("data-sect");
+        SECT[key] = !SECT[key];
+        renderInspector();
+      });
+    });
+};
+
+/* The recorded peers for the window on screen, obeying the same filters the
+   tree and the globe do, busiest first. */
+var pastPeers = function () {
+  return ((PASTMAP && PASTMAP.peers) || []).filter(function (p) {
+    if (HIDE_SYSTEM && p.is_system) { return false; }
+    if (SEL.kind === "app" && p.app !== SEL.app) { return false; }
+    if (SEL.kind === "domain" &&
+        domainOf(p.ip, p.host || "", p.org) !== SEL.domain) { return false; }
+    return true;
+  });
+};
+
+/* One row per server: who it is, where, and how much moved. Folded by the
+   name shown, so a content network answering from nine addresses is one row
+   rather than nine -- the same folding the tree and the globe use. */
+var pastPeerRows = function () {
+  var byName = {};
+  pastPeers().forEach(function (p) {
+    var name = domainOf(p.ip, p.host || "", p.org) || p.ip;
+    var row = byName[name] || (byName[name] = {
+      name: name, bytes: 0, hosts: 0,
+      where: (p.city || "") + (p.country ? ", " + p.country : "")});
+    row.bytes += (p.bytes_in || 0) + (p.bytes_out || 0);
+    row.hosts += 1;
+    if (!row.where && p.city) { row.where = p.city; }
+  });
+  var rows = Object.keys(byName).map(function (k) { return byName[k]; });
+  rows.sort(function (a, b) { return b.bytes - a.bytes; });
+  if (!rows.length) {
+    return '<div class="kv"><span class="muted">nothing recorded in this '
+         + "window</span></div>";
+  }
+  var most = rows[0].bytes || 1;
+  var total = rows.reduce(function (n, r) { return n + r.bytes; }, 0) || 1;
+  return rows.slice(0, 40).map(function (r) {
+    var share = 100 * r.bytes / total;
+    return '<div class="bd">' +
+      '<span class="bdname">' + esc(r.name) +
+      (r.hosts > 1 ? ' <span class="muted">×' + r.hosts + "</span>" : "") +
+      (r.where ? ' <span class="muted">· ' + esc(r.where) + "</span>" : "") +
+      "</span>" +
+      '<span class="bdbar"><i style="width:' +
+      Math.max(2, Math.round(100 * r.bytes / most)) +
+      '%;background:var(--recv)"></i></span>' +
+      '<span class="bdval">' + esc(fmtB(r.bytes)) + "</span>" +
+      '<span class="bdshare">' + share.toFixed(0) + "%</span></div>";
+  }).join("");
+};
+
+/* ---- the scrubber --------------------------------------------------------
+   Dragging moves the END of the window through the recorded history. The
+   window keeps its width -- picking "6h" and dragging back gives you six
+   hours ending wherever you stopped, not a window that grows as you drag.
+
+   Everything is clamped to what the database actually holds, which the
+   endpoint reports as `span`. A control that lets you drag into a week the
+   Mac was switched off, and then shows an empty map, is indistinguishable
+   from a broken one. */
+/* Only the request sequence survives the scrubber. The span buttons still
+   change the window, answers can still arrive out of order, and a stale one
+   repainting the map over a newer one is a bug that had nothing to do with
+   dragging. */
+var SCRUB = {seq: 0};
+
+/* ---- footer -------------------------------------------------------------- */
+var spanName = function (seconds) {
+  if (seconds >= 604800) { return (seconds / 86400) + " days"; }
+  if (seconds >= 86400) { return (seconds / 86400) + " hours".replace("hours",
+    seconds === 86400 ? "day" : "days"); }
+  return (seconds / 3600) + (seconds === 3600 ? " hour" : " hours");
+};
+
+var renderFoot = function () {
+  if (SPAN) {
+    var chosen = null;
+    ((PAST && PAST.apps) || []).forEach(function (a) {
+      if (SEL.kind === "app" && a.app === SEL.app) { chosen = a; }
+    });
+    var pin = 0, pout = 0, points = {};
+    ((PAST && PAST.apps) || []).forEach(function (a) {
+      if (chosen && a !== chosen) { return; }
+      pin += a.bytes_in; pout += a.bytes_out;
+      a.points.forEach(function (p) {
+        var slot = points[p.ts] || (points[p.ts] = {ts: p.ts, up: 0, dn: 0});
+        slot.up += p.out; slot.dn += p["in"];
+      });
+    });
+    document.getElementById("psent").textContent = fmtB(pout);
+    document.getElementById("precv").textContent = fmtB(pin);
+    document.getElementById("timelabel").textContent =
+      "Last " + spanName(SPAN) + (chosen ? " · " + chosen.app : "") +
+      " · recorded";
+    drawBars(document.getElementById("histo"),
+             Object.keys(points).sort(function (a, b) { return a - b; })
+               .map(function (k) { return points[k]; }), 34, 3);
+    return;
+  }
+  if (!DATA) { return; }
+  var key = SEL.kind === "all" ? "*" : SEL.app;
+  var up = 0, dn = 0;
+  visibleApps().forEach(function (a) {
+    if (SEL.kind !== "all" && a.app !== SEL.app) { return; }
+    a.conns.forEach(function (c) {
+      if (SEL.kind === "domain" &&
+          domainOf(c.peer, c.host, c.where && c.where.org) !== SEL.domain) { return; }
+      up += c.bytes_out; dn += c.bytes_in;
+    });
+  });
+  document.getElementById("psent").textContent = fmtB(up);
+  document.getElementById("precv").textContent = fmtB(dn);
+  document.getElementById("timelabel").textContent =
+    SEL.kind === "all" ? "Live · last 10 minutes"
+                       : "Live · " + (SEL.domain || SEL.app);
+  drawBars(document.getElementById("histo"), HIST[key] || [], 34, 3);
+};
+
+var render = function () {
+  renderTree();
+  renderFoot();
+  renderInspector();
+  regroup();
+};
+
+/* ---- the pulse ----------------------------------------------------------- */
+var tick = function () {
+  if (SPAN) {
+    var end = Math.floor(Date.now() / 1000);
+    // Answers can arrive out of order, and a slow reply for a moment you have
+    // already dragged away from would repaint the map with the wrong one.
+    // Only the newest request is allowed to land.
+    var seq = ++SCRUB.seq;
+    fetch(api("/api/netmap", {start: end - SPAN, end: end}))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (seq !== SCRUB.seq) { return; }
+        PASTMAP = d; render();
+      })
+      .catch(function () {});
+    return fetch(api("/api/nethistory", {start: end - SPAN, end: end}))
+      .then(function (r) { return r.json(); })
+      .then(function (d) { if (seq === SCRUB.seq) { PAST = d; render(); } })
+      .catch(function () {
+        document.getElementById("mapnote").textContent =
+          "The recording is not answering — retrying.";
+      });
+  }
+  return fetch(api("/api/nettraffic")).then(function (r) { return r.json(); })
+    .then(function (d) { absorb(d); render(); })
+    .catch(function () {
+      document.getElementById("mapnote").textContent =
+        "The recorder is not answering — retrying.";
+    });
+};
+
+document.getElementById("search").addEventListener("input", function (e) {
+  FILTER = e.target.value.trim().toLowerCase();
+  renderTree();
+});
+
+var applySysFilter = function () {
+  var button = document.getElementById("sysfilter");
+  button.classList.toggle("on", HIDE_SYSTEM);
+  button.textContent = HIDE_SYSTEM ? "Your apps only" : "All processes";
+  button.title = HIDE_SYSTEM
+    ? "Showing only applications you installed — press to include macOS"
+    : "Showing everything, macOS included — press to hide the system";
+};
+
+document.getElementById("sysfilter").addEventListener("click", function () {
+  HIDE_SYSTEM = !HIDE_SYSTEM;
+  try {
+    localStorage.setItem("procwatch.net.hidesys", HIDE_SYSTEM ? "1" : "0");
+  } catch (err) { /* private browsing; it lasts the session */ }
+  // A hidden application must not stay selected, or the panes would keep
+  // describing something the list no longer shows.
+  if (HIDE_SYSTEM && SEL.kind !== "all") {
+    var still = visibleApps().some(function (a) { return a.app === SEL.app; });
+    if (!still) { SEL = {kind: "all"}; }
+  }
+  applySysFilter();
+  render();
+});
+applySysFilter();
+
+Array.prototype.forEach.call(
+  document.querySelectorAll("#spans button"), function (button) {
+    button.addEventListener("click", function () {
+      SPAN = parseInt(button.getAttribute("data-span"), 10) || 0;
+      SEL = {kind: "all"};
+      PAST = null;
+      Array.prototype.forEach.call(
+        document.querySelectorAll("#spans button"), function (other) {
+          other.classList.toggle("on", other === button);
+        });
+      document.getElementById("tree").innerHTML =
+        '<div class="empty"><b>Reading the recording</b>One moment.</div>';
+      tick();
+    });
+  });
+
+if (DEVICE) {
+  document.getElementById("mapwho").textContent = "Where it goes · " + DEVICE;
+  document.title = DEVICE + " · Network Monitor";
+  var back = document.getElementById("back");
+  if (back) { back.textContent = "\u2039 Dashboard"; }
+}
+
+tick();
+// The live view wants to be current; a past window does not change under you,
+// so it is re-read rarely and only to pick up the newest bucket.
+setInterval(function () { if (!document.hidden) { tick(); } }, 5000);
+// Called by the menu bar when the panel comes back, so what you were looking
+// at is still selected and still where you left it, but the numbers are not
+// the ones from when you closed it.
+window.procwatchShown = function () { tick(); };
+window.addEventListener("resize", function () { render(); });
+wireGlobe();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
