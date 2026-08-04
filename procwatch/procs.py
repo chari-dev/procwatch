@@ -14,7 +14,14 @@ from . import identity, netstat, rusage
 
 # TERM asks, KILL compels. Nothing else is exposed: the point is to stop a
 # runaway process, not to offer a general signal console.
-ALLOWED_SIGNALS = {"TERM": signal_module.SIGTERM, "KILL": signal_module.SIGKILL}
+# STOP and CONT are here for the network monitor's off switch. Blocking one
+# application's traffic properly needs a network extension Apple has to
+# authorise, which this tool cannot hold -- but a suspended process cannot
+# run, and a process that cannot run cannot send or receive anything. It is
+# a blunter instrument than a firewall rule and it is reversible, which is
+# the pair of properties that makes it honest to offer.
+ALLOWED_SIGNALS = {"TERM": signal_module.SIGTERM, "KILL": signal_module.SIGKILL,
+                   "STOP": signal_module.SIGSTOP, "CONT": signal_module.SIGCONT}
 
 PS_FIELDS = ["ps", "-Axo", "pid,ppid,uid,pcpu,rss,state,lstart,comm"]
 
@@ -144,7 +151,8 @@ def signal_pid(pid, name="TERM"):
     outright -- signalling launchd is never what anyone meant.
     """
     if name not in ALLOWED_SIGNALS:
-        return {"ok": False, "error": "signal must be TERM or KILL"}
+        return {"ok": False, "error": "signal must be one of %s"
+                                      % ", ".join(sorted(ALLOWED_SIGNALS))}
     if pid <= 1:
         return {"ok": False, "error": "refusing to signal pid %d" % pid}
     try:

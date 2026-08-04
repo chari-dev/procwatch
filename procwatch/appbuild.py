@@ -38,7 +38,7 @@ INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
   <key>CFBundleIdentifier</key><string>dev.procwatch.bar</string>
   <key>CFBundleExecutable</key><string>ProcwatchBar</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.1.1</string>
+  <key>CFBundleShortVersionString</key><string>__PROCWATCH_VERSION__</string>
   <key>CFBundleIconFile</key><string>procwatch</string>
   <key>LSUIElement</key><true/>
   <key>NSLocalNetworkUsageDescription</key>
@@ -122,16 +122,28 @@ def build(destination="/Applications"):
         source = os.path.join(work, "ProcwatchBar.swift")
         with open(source, "wb") as handle:
             handle.write(asset("ProcwatchBar.swift"))
+        # IOKit is for the Keep Awake power assertion. It has to be listed
+        # here as well as in menubar/build.sh: this is the path the one-line
+        # installer takes, and a framework missing from only this copy is a
+        # build that works in the checkout and fails on every fresh install.
         result = subprocess.run(
             ["swiftc", "-O", source, "-o", os.path.join(macos, "ProcwatchBar"),
-             "-framework", "AppKit", "-framework", "WebKit"],
+             "-framework", "AppKit", "-framework", "WebKit",
+             "-framework", "IOKit"],
             capture_output=True, text=True, timeout=600)
         if result.returncode != 0:
             raise RuntimeError("swiftc failed:\n%s"
                                % (result.stderr or result.stdout).strip()[:800])
 
+        # The declared version is config.VERSION, substituted at build time
+        # rather than written in the heredoc. A literal here said 1.0 through
+        # four releases (config.py tells the story), and then 1.1.1 through
+        # three more -- so procwatch's version panel could not see procwatch's
+        # own updates. One source, no drift.
+        from . import config
         with open(os.path.join(app, "Contents", "Info.plist"), "w") as handle:
-            handle.write(INFO_PLIST)
+            handle.write(INFO_PLIST.replace("__PROCWATCH_VERSION__",
+                                            config.VERSION))
         _write_icon(work, resources)
         with open(os.path.join(resources, "procwatch-bar.png"), "wb") as handle:
             handle.write(asset("procwatch-bar.png"))
