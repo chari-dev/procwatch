@@ -22,7 +22,7 @@ VERSION=$(python3 -c 'import sys; sys.path.insert(0, ".."); from procwatch impor
 BUILD=$(shasum -a 256 ../procwatch.py | cut -c1-8)
 
 swiftc -O ProcwatchBar.swift -o "$APP/Contents/MacOS/ProcwatchBar" \
-  -framework AppKit -framework WebKit
+  -framework AppKit -framework WebKit -framework IOKit
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
