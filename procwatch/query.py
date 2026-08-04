@@ -208,7 +208,11 @@ def _fold_system(rows, bucket_width, now=None):
 # the ones that peak highest, so ranking by CPU folded 95% of the attributed
 # energy on this machine into the remainder band, and the chart answered "what
 # spent your battery" with "mostly something else".
-RANKINGS = {"cpu": "MAX(cpu_max)", "energy": "SUM(energy)"}
+RANKINGS = {"cpu": "MAX(cpu_max)", "energy": "SUM(energy)",
+            # For the network monitor looking backwards: the heaviest talkers
+            # over a window, which is a different set from the heaviest
+            # burners of CPU and the whole reason that view exists.
+            "net": "SUM(net_in + net_out)"}
 
 
 def series(conn, start, end, limit=12, scope="all", rank="cpu"):
@@ -235,7 +239,8 @@ def series(conn, start, end, limit=12, scope="all", rank="cpu"):
     rank_sql = ("SELECT proc_id, %s FROM (%s) GROUP BY proc_id "
                 "ORDER BY 2 DESC LIMIT ?"
                 % (measure,
-                   _tier_union("sample_", "proc_id, cpu_max, energy",
+                   _tier_union("sample_",
+                               "proc_id, cpu_max, energy, net_in, net_out",
                                rank_filter)))
     rank_params = []
     for _ in config.TIERS:

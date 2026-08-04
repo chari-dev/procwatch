@@ -315,8 +315,18 @@ globalThis.__tick = async () => {
 globalThis.setTimeout = (f) => { if (typeof f === 'function') { f(); } return 0; };
 globalThis.clearTimeout = () => {};
 
+// Functions worth testing directly rather than through the DOM. The page opens
+// with "use strict", under which a var in an indirect eval stays in the eval's
+// own scope instead of landing on globalThis -- so it hands them over itself.
+// A test-only epilogue appended to the source, not a change to the page.
+const HANDOVER = "\n;globalThis.__page = {squarify: typeof squarify === " +
+  "'function' ? squarify : null, colourFor: typeof colourFor === 'function' ? " +
+  "colourFor : null};";
+
 try {
-  new Function(code)();
+  // Indirect eval rather than new Function, so the page runs in one scope the
+  // way a <script> does rather than inside a wrapper of the harness's making.
+  (0, eval)(code + HANDOVER);
 } catch (error) {
   console.log('THREW while loading: ' + error.message);
   process.exit(1);
@@ -786,6 +796,89 @@ if (!storeRows.length) {
       problems.push('the shares are missing: ' + shown.slice(0, 260));
     }
   }
+}
+
+// ---- the treemap -----------------------------------------------------------
+//
+// Area is the claim: a folder twice the size gets twice the rectangle. That is
+// arithmetic and can be checked as arithmetic, which is worth more than looking
+// at it, because a layout can be plausible and wrong by a factor of two.
+const squarify = (globalThis.__page || {}).squarify;
+const colourFor = (globalThis.__page || {}).colourFor;
+if (typeof squarify === 'function') {
+  // A real disk, not five tidy numbers: a couple of giants and a long tail.
+  // Five similar items land in one or two rows, where slicing and squarifying
+  // produce the same picture and neither the aspect check nor the coverage
+  // check can tell them apart.
+  const items = [4200, 3100, 1800, 900, 640, 480, 310, 220, 150, 90, 60, 40,
+                 25, 12, 6].map((v) => ({value: v}));
+  const W = 1000, H = 460;
+  const boxes = squarify(items, 0, 0, W, H);
+
+  if (boxes.length !== items.length) {
+    problems.push('the treemap dropped ' + (items.length - boxes.length) + ' items');
+  }
+  const total = items.reduce((a, i) => a + i.value, 0);
+  const scale = (W * H) / total;
+  boxes.forEach((b) => {
+    const want = b.item.value * scale;
+    const got = b.w * b.h;
+    if (Math.abs(got - want) / want > 0.02) {
+      problems.push('a tile is ' + (got / want).toFixed(2) +
+                    'x the area its size calls for');
+    }
+  });
+  // Filling the box: the areas summing correctly is not the same as the
+  // rectangles covering the space they were given.
+  const covered = boxes.reduce((a, b) => a + b.w * b.h, 0);
+  if (Math.abs(covered - W * H) / (W * H) > 0.02) {
+    problems.push('the tiles cover ' + (covered / (W * H) * 100).toFixed(1) +
+                  '% of the frame');
+  }
+  // Inside it, and not overlapping.
+  boxes.forEach((b) => {
+    if (b.x < -0.5 || b.y < -0.5 || b.x + b.w > W + 0.5 || b.y + b.h > H + 0.5) {
+      problems.push('a tile falls outside the frame');
+    }
+  });
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i], b = boxes[j];
+      const overlap = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) *
+                      Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+      if (overlap > 1) { problems.push('two tiles overlap by ' + overlap.toFixed(0) + 'px'); }
+    }
+  }
+  // Squarified, not sliced: the whole point is that no tile is a sliver.
+  const worst = Math.max(...boxes.map((b) => Math.max(b.w / b.h, b.h / b.w)));
+  if (worst > 6) {
+    problems.push('the worst tile is ' + worst.toFixed(0) +
+                  ':1. Squarifying exists to stop that; slicing gives 40:1');
+  }
+  // And a colour follows the name rather than the order.
+  if (typeof colourFor === 'function') {
+    if (colourFor('Library') !== colourFor('Library')) {
+      problems.push('a folder does not keep its colour');
+    }
+    // And different folders mostly get different colours. Keying on something
+    // like the length of the name is stable and useless: every eight-letter
+    // folder comes out identical.
+    const names = ['Library', 'Downloads', 'Movies', 'Documents', 'Music',
+                   'Pictures', 'Desktop', 'Developer', 'Applications',
+                   'Containers', 'Caches', 'node_modules'];
+    const distinct = new Set(names.map(colourFor)).size;
+    if (distinct < 5) {
+      problems.push('twelve folders share only ' + distinct + ' colours');
+    }
+    // The precise property: the colour comes from the name, not from something
+    // incidental about it. Keying on the length is stable and passes every
+    // check above while giving Movies and Caches the same colour for ever.
+    if (colourFor('Movies') === colourFor('Caches')) {
+      problems.push('two six-letter folders always share a colour');
+    }
+  }
+} else {
+  problems.push('there is no treemap');
 }
 
 const clicks = listeners.document.click || [];

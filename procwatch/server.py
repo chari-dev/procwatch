@@ -18,12 +18,40 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import (alerts, archive, config, db, diagnose, events, knowledge, live,
-               netstat, peers, power, prefs, procs, query, share, storage,
-               system, versions)
+from . import (alerts, archive, battery, config, db, diagnose, events, icons,
+               knowledge, live, netpeer, netstat, peers, power, prefs, procs,
+               query, selfupdate, share, space, storage, system, versions)
 
 IDLE_TIMEOUT = 900
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+
+
+# The state of a scan in progress. One at a time: a second walk of the same
+# disk would halve the speed of the first and answer the same question.
+_SCAN = {"running": False, "progress": None, "error": ""}
+
+
+def _start_scan(root=None):
+    """Begin a scan in the background, if one is not already going."""
+    if _SCAN.get("running"):
+        return False
+    _SCAN.update({"running": True, "progress": {"files": 0, "bytes": 0},
+                  "error": ""})
+
+    def work():
+        conn = db.connect(config.DB_PATH)
+        try:
+            space.scan(conn, root,
+                       progress=lambda files, size: _SCAN.__setitem__(
+                           "progress", {"files": files, "bytes": size}))
+        except Exception as problem:
+            _SCAN["error"] = str(problem)
+        finally:
+            conn.close()
+            _SCAN["running"] = False
+
+    threading.Thread(target=work, daemon=True).start()
+    return True
 
 
 def _token_of(server):
@@ -138,6 +166,85 @@ def api_get(conn, path, params):
     if path == "/api/live":
         return procs.live_tree()
 
+    if path == "/api/nethistory":
+        # The network monitor, looking backwards. The recording keeps bytes
+        # per process per bucket, so a past window can say who was talking
+        # and how much -- but not to whom: peers are only known while a
+        # connection is open, and are never written down.
+        end = _seconds(params.get("end", [time.time()])[0])
+        start = _seconds(params.get("start", [end - 3600])[0])
+        limit = max(1, min(40, int(params.get("limit", ["18"])[0])))
+        data = query.series(conn, start, end, limit=limit, rank="net")
+        # Folded by the name shown, because one application is often several
+        # recorded identities -- a browser and its renderers -- and a list
+        # naming the same program three times is a list nobody can read.
+        merged = {}
+        for entry in data["series"]:
+            name = entry.get("app") or entry["exe"]
+            if entry["exe"] == config.OTHER:
+                name = "Everything else"
+            row = merged.setdefault(name, {
+                "app": name, "is_system": entry.get("is_system", False),
+                "bytes_in": 0, "bytes_out": 0, "by_ts": {}})
+            for point in entry["points"]:
+                row["bytes_in"] += point["net_in"]
+                row["bytes_out"] += point["net_out"]
+                slot = row["by_ts"].setdefault(point["ts"], [0, 0])
+                slot[0] += point["net_in"]
+                slot[1] += point["net_out"]
+        apps = []
+        for row in merged.values():
+            if not row["bytes_in"] and not row["bytes_out"]:
+                continue
+            row["points"] = [{"ts": ts, "in": v[0], "out": v[1]}
+                             for ts, v in sorted(row.pop("by_ts").items())]
+            apps.append(row)
+        apps.sort(key=lambda a: -(a["bytes_in"] + a["bytes_out"]))
+        return {"apps": apps, "start": start, "end": end}
+
+    if path == "/api/netmap":
+        # The map, asked about a time rather than about now. Everything here
+        # is read from the recorded peer history, so a window from six hours
+        # ago answers exactly as well as the last five minutes -- which is the
+        # whole point of keeping it. `span` tells the scrubber how far back it
+        # is allowed to drag; without it the control invents a range the
+        # database cannot fill and every drag past the edge looks broken.
+        end = _seconds(params.get("end", [time.time()])[0])
+        start = _seconds(params.get("start", [end - 3600])[0])
+        held = netpeer.span(conn)
+        # The peers are the chosen window. The timeline is deliberately NOT:
+        # it is the scrubber's own track, and a track that only covers where
+        # you already are is blank everywhere you have not been. Drawn across
+        # the full scrubbable range it does what it exists for -- showing
+        # where the traffic is before you drag to it -- and it no longer has
+        # to be refetched mid-drag, since dragging does not change it.
+        track_start = held["first"] if held else start
+        track_end = max(end, held["last"] if held else end)
+        return {"start": start, "end": end,
+                "peers": netpeer.peers(conn, start, end),
+                "span": held,
+                "timeline": netpeer.timeline(conn, track_start, track_end)}
+
+    if path == "/api/nettraffic":
+        # Who is talking to the network, to whom, at what rate. Served from
+        # the background nettop pass, so it never blocks on a five-second
+        # tool; the answer says how old it is.
+        return live.network_traffic()
+
+    if path == "/api/battery":
+        # Condition now, plus the charge history the sampler already keeps, so
+        # the page can say both "85% of new" and "this is what today did".
+        state = battery.read()
+        hours = max(1, min(720, int(params.get("hours", ["24"])[0])))
+        rows = conn.execute(
+            "SELECT ts, batt_pct, batt_draw_mw, on_ac FROM system_raw "
+            "WHERE ts >= ? AND batt_pct >= 0 ORDER BY ts",
+            (int(time.time()) - hours * 3600,)).fetchall()
+        return {"now": state, "verdict": battery.verdict(state),
+                "history": [{"ts": r[0], "percent": r[1],
+                             "draw_mw": r[2] if r[2] and r[2] > 0 else None,
+                             "on_ac": bool(r[3])} for r in rows]}
+
     if path == "/api/storage":
         return storage.usage(conn, limit=30)
 
@@ -175,12 +282,74 @@ def api_get(conn, path, params):
     if path == "/api/prefs":
         return prefs.all_prefs(conn)
 
+    if path == "/api/space":
+        # Whatever is known right now. The scan itself takes minutes, so this
+        # never starts one: it reports the last one and whether another is
+        # running, and the page decides what to show.
+        found = space.latest(conn)
+        out = {"volume": space.volumes(), "snapshots": space.snapshots(),
+               "scan": found, "running": _SCAN.get("running", False),
+               "progress": _SCAN.get("progress"),
+               "error": _SCAN.get("error", ""),
+               "reconcile": space.reconcile(conn),
+               "blocked": space.guarded()}
+        if found and found["finished_ts"]:
+            sid = found["id"]
+            under = params.get("under", [None])[0]
+            out["kinds"] = space.kinds(conn, sid)
+            out["owners"] = space.owners(conn, sid)
+            # Scoped with the folder view: looking inside ~/Movies should
+            # rank the files there, not repeat the same global fifteen.
+            out["files"] = space.biggest_files(conn, sid, under=under)
+            # Standing in a folder is a different question from surveying a
+            # disk. The recorded scan keeps only files over its floor, so a
+            # folder full of 20 MB files reads as empty; reading that one
+            # directory now costs a single readdir and answers what is
+            # actually in front of you. Only when a folder is named -- the
+            # top level is the survey, and that is what the scan is for.
+            # NOT named `live`: that is the module this function calls for
+            # /api/now, and a local of the same name makes Python treat the
+            # name as local for the whole function -- so binding it here left
+            # `live.snapshot()` raising UnboundLocalError on a completely
+            # different endpoint, which is a fault with no visible connection
+            # to the line that caused it.
+            if under:
+                here = space.files_in(under)
+                if here:
+                    out["files"] = here
+            out["dirs"] = space.biggest_dirs(conn, sid, under=under)
+            out["under"] = under or found["root"]
+            out["apps"] = space.applications(conn, sid)
+            for row in out["dirs"]:
+                row["about"] = space.explain(row["path"])
+        return out
+
+    if path == "/api/app":
+        # Everything one application put outside its own bundle. Read-only:
+        # the list is meant to be looked at before anything happens to it.
+        found = space.leftovers(params.get("path", [""])[0])
+        if not found:
+            raise ValueError("not an application bundle")
+        found["running"] = space.running(found["app"]["path"])
+        return found
+
+    if path == "/api/caches":
+        return {"caches": space.caches()}
+
     if path == "/api/badge":
         # What the menu bar shows. Cheap enough to poll: the verdict over an
         # hour, which is the same work the dashboard does when it opens.
         count, keys = diagnose.unread(conn)
-        return {"count": count, "keys": keys,
-                "enabled": prefs.findings_on(conn)}
+        out = {"count": count, "keys": keys,
+               "enabled": prefs.findings_on(conn)}
+        # notes=1 is the menu bar app collecting the notification queue to
+        # post as itself. Collected is delivered: handing the same note out
+        # twice is a notification that appears twice. Local-only like the
+        # rest, and the worst a hostile page can do with it is suppress a
+        # notification it cannot read.
+        if params.get("notes", ["0"])[0] not in ("0", "", "false"):
+            out["notes"] = alerts.pending(conn, claim=True)
+        return out
 
     if path == "/api/why":
         # The verdict for a window. Defaults to the last hour, which is the
@@ -201,6 +370,19 @@ def api_get(conn, path, params):
         days = max(1, min(370, int(params.get("days", ["7"])[0])))
         now = int(time.time())
         return storage.growth(conn, since=now - days * 86400, now=now)
+
+    if path == "/api/upgrade":
+        # Whether a newer procwatch exists on GitHub. Answered by this server
+        # rather than the page because the page cannot ask another origin --
+        # and cached inside selfupdate, so an open dashboard does not poll
+        # GitHub.
+        force = params.get("force", ["0"])[0] not in ("0", "", "false")
+        return selfupdate.check(force=force)
+
+    if path == "/api/cleanup":
+        # What one press of Clean up would move to the Trash, itemised and
+        # totalled. Read-only: the press itself arrives as a POST.
+        return space.cleanup_plan()
 
     if path == "/api/updates":
         days = max(1, min(370, int(params.get("days", ["30"])[0])))
@@ -273,6 +455,40 @@ def _seconds(value):
     return int(float(value))
 
 
+def world_js():
+    """The country outlines, as generated data. Replaced by the bundle."""
+    with open(os.path.join(STATIC, "world.js"), "r") as handle:
+        return handle.read()
+
+
+def netmonitor_html():
+    """The network monitor page, unrendered.
+
+    A separate page rather than a card: it is an instrument someone leaves
+    open, and it earns a window of its own. Same single-source rule as the
+    dashboard -- the bundle replaces this with an embedded copy.
+    """
+    with open(os.path.join(STATIC, "netmonitor.html"), "r") as handle:
+        return handle.read()
+
+
+def battery_html():
+    """The battery page, unrendered. Same single-source rule as the others."""
+    with open(os.path.join(STATIC, "battery.html"), "r") as handle:
+        return handle.read()
+
+
+def storage_html():
+    """The storage page, unrendered.
+
+    Same reasoning as the network monitor: working out where a disk went is a
+    thing you go and do, not a card you glance at, and it was previously a
+    full-screen sheet over a dashboard that kept refreshing behind it.
+    """
+    with open(os.path.join(STATIC, "storage.html"), "r") as handle:
+        return handle.read()
+
+
 def dashboard_html():
     """The dashboard page, unrendered.
 
@@ -308,6 +524,63 @@ class Handler(BaseHTTPRequestHandler):
         params = parse_qs(parsed.query)
         if parsed.path in ("/", "/index.html"):
             return self._serve_index()
+        if parsed.path == "/api/icon":
+            # An application's own icon. Cached hard: a bundle's icon does
+            # not change until the application is updated, and the cache key
+            # already carries that.
+            # By path where the caller knows one, by name where it only has
+            # the name -- which is most of the dashboard.
+            where = params.get("path", [""])[0] or \
+                icons.bundle_for_name(params.get("app", [""])[0])
+            body = icons.png(where, int(params.get("size", ["64"])[0] or 64))
+            if body is None:
+                return self._send(404, "no icon", "text/plain")
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "max-age=604800")
+            self.end_headers()
+            return self.wfile.write(body)
+        if parsed.path == "/world.js":
+            # The country outlines the globe is drawn from. Static, and the
+            # one thing here big enough that re-sending it every poll would
+            # be silly -- so this is the only response allowed to be cached.
+            try:
+                body = world_js().encode()
+            except OSError:
+                return self._send(404, "no world data", "text/plain")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "max-age=86400")
+            self.end_headers()
+            return self.wfile.write(body)
+        if parsed.path == "/net":
+            # Carries this run's token like the dashboard: the monitor's off
+            # switch is a POST, and it goes through the same guard.
+            try:
+                page = netmonitor_html()
+            except OSError:
+                return self._send(404, "no network monitor installed",
+                                  "text/plain")
+            page = page.replace("__PROCWATCH_TOKEN__", _token_of(self.server))
+            return self._send(200, page.encode(), "text/html; charset=utf-8")
+        if parsed.path == "/battery":
+            try:
+                page = battery_html()
+            except OSError:
+                return self._send(404, "no battery page installed", "text/plain")
+            page = page.replace("__PROCWATCH_TOKEN__", _token_of(self.server))
+            return self._send(200, page.encode(), "text/html; charset=utf-8")
+        if parsed.path == "/disk":
+            # Same shape as /net: its own page, carrying this run's token
+            # because starting a scan is a POST and goes through the guard.
+            try:
+                page = storage_html()
+            except OSError:
+                return self._send(404, "no storage page installed", "text/plain")
+            page = page.replace("__PROCWATCH_TOKEN__", _token_of(self.server))
+            return self._send(200, page.encode(), "text/html; charset=utf-8")
         if parsed.path == "/api/peers":
             return self._send(200, json.dumps(peers.listing()), "application/json")
         if parsed.path == "/api/remote":
@@ -340,7 +613,9 @@ class Handler(BaseHTTPRequestHandler):
         self.server.last_seen = time.time()
         parsed = urlparse(self.path)
         if parsed.path not in ("/api/kill", "/api/alerts", "/api/peers",
-                               "/api/prefs", "/api/read"):
+                               "/api/prefs", "/api/read", "/api/scan",
+                               "/api/trash", "/api/settings", "/api/upgrade",
+                               "/api/cleanup", "/api/netblock", "/api/reveal"):
             return self._send(404, "not found", "text/plain")
         # Same guard for both. Changing a rule is far less dangerous than
         # signalling a process, but a page on another origin still has no
@@ -357,6 +632,36 @@ class Handler(BaseHTTPRequestHandler):
             return self._change_prefs()
         if parsed.path == "/api/read":
             return self._mark_read()
+        if parsed.path == "/api/scan":
+            started = _start_scan()
+            return self._send(200, json.dumps(
+                {"ok": True, "started": started, "running": _SCAN["running"]}),
+                "application/json")
+        if parsed.path == "/api/trash":
+            return self._trash()
+        if parsed.path == "/api/reveal":
+            return self._reveal()
+        if parsed.path == "/api/upgrade":
+            # Install the newer version. The reply says what happened and
+            # whether a restart is owed; it never restarts anything itself,
+            # because this handler is the thing that would be restarted.
+            result = selfupdate.apply()
+            return self._send(200 if result["ok"] else 500,
+                              json.dumps(result), "application/json")
+        if parsed.path == "/api/cleanup":
+            return self._cleanup()
+        if parsed.path == "/api/netblock":
+            return self._netblock()
+        if parsed.path == "/api/settings":
+            # Open the Full Disk Access pane. The dashboard runs in a web view
+            # that cannot follow an x-apple.systempreferences: link itself, and
+            # telling somebody to navigate four levels of System Settings is how
+            # a permission never gets granted.
+            subprocess.run(
+                ["open", "x-apple.systempreferences:com.apple.preference."
+                         "security?Privacy_AllFiles"],
+                capture_output=True, timeout=15)
+            return self._send(200, json.dumps({"ok": True}), "application/json")
         try:
             length = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(length) or b"{}")
@@ -452,6 +757,158 @@ class Handler(BaseHTTPRequestHandler):
                               "application/json")
         finally:
             conn.close()
+
+    def _trash(self):
+        """Move what was asked for to the Trash.
+
+        The refusals live in space.trash rather than here, so the CLI and this
+        cannot disagree about what may be deleted -- and the answer says what
+        happened to each path rather than one overall success.
+        """
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            return self._send(400, json.dumps({"error": "malformed request"}),
+                              "application/json")
+        paths = body.get("paths") or []
+        if not isinstance(paths, list) or not paths:
+            return self._send(400, json.dumps({"error": "no paths given"}),
+                              "application/json")
+        results = space.trash([str(p) for p in paths])
+        freed = sum(1 for r in results if r["ok"])
+        return self._send(200, json.dumps({"ok": True, "results": results,
+                                           "moved": freed}),
+                          "application/json")
+
+    def _reveal(self):
+        """Show a path in Finder.
+
+        `open -R` selects the item in its enclosing folder rather than opening
+        it, which is what "show me this" means and, more to the point, is not
+        "run this". A page that could ask for `open` on an arbitrary path
+        could ask for it on an executable.
+
+        The path is resolved and checked to exist before Finder is asked, so a
+        crafted body gets a refusal rather than Finder bouncing silently.
+        """
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            return self._send(400, json.dumps({"error": "malformed request"}),
+                              "application/json")
+        wanted = os.path.abspath(os.path.expanduser(str(body.get("path") or "")))
+        if not wanted or not os.path.lexists(wanted):
+            return self._send(404, json.dumps({"ok": False,
+                                               "error": "no longer there"}),
+                              "application/json")
+        try:
+            subprocess.run(["open", "-R", wanted], capture_output=True,
+                           timeout=15)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return self._send(500, json.dumps({"ok": False,
+                                               "error": str(error)}),
+                              "application/json")
+        return self._send(200, json.dumps({"ok": True}), "application/json")
+
+    def _cleanup(self):
+        """Move everything the cleanup plan lists to the Trash.
+
+        The plan is recomputed here rather than trusted from the request, so
+        this endpoint can only ever remove what /api/cleanup would have shown
+        -- a stale or crafted body cannot widen it into a second, unlisted
+        delete. And it is intersected with the paths the page actually
+        confirmed, so something that appeared between the confirmation being
+        read and this arriving is not swept unread. The refusals in
+        space.trash still apply on top.
+        """
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            body = {}
+        confirmed = body.get("paths")
+        plan = space.cleanup_plan()
+        paths = [item["path"] for group in plan["groups"]
+                 for item in group["items"]]
+        if isinstance(confirmed, list) and confirmed:
+            wanted = {str(p) for p in confirmed}
+            paths = [p for p in paths if p in wanted]
+        if not paths:
+            return self._send(200, json.dumps(
+                {"ok": True, "results": [], "moved": 0, "bytes": 0}),
+                "application/json")
+        results = space.trash(paths)
+        moved = [r for r in results if r["ok"]]
+        by_path = {item["path"]: item["bytes"] for group in plan["groups"]
+                   for item in group["items"]}
+        freed = sum(by_path.get(r["path"], 0) for r in moved)
+        return self._send(200, json.dumps(
+            {"ok": True, "results": results, "moved": len(moved),
+             "bytes": freed}), "application/json")
+
+    def _netblock(self):
+        """Stop an application using the network, or let it go again.
+
+        By suspending it, which is the only per-application off switch a
+        program without Apple's network-extension entitlement can offer: a
+        process that is not running cannot send or receive. Blunter than a
+        firewall rule -- the whole application freezes, not just its traffic
+        -- and exactly reversible, which is what makes it honest to offer at
+        all rather than a checkbox that does nothing.
+
+        The pids come from a fresh reading rather than from the request, so a
+        crafted body cannot aim SIGSTOP at something that was never on the
+        page, and procs.signal_pid still refuses anything this user does not
+        own.
+        """
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            return self._send(400, json.dumps({"error": "malformed request"}),
+                              "application/json")
+        name = str(body.get("app") or "")
+        stop = bool(body.get("stop"))
+        if not name:
+            return self._send(400, json.dumps({"error": "no application named"}),
+                              "application/json")
+        wanted, is_system = [], False
+        for entry in live.network_traffic()["apps"]:
+            if entry["app"] == name:
+                wanted = entry["pids"]
+                is_system = entry["is_system"]
+        if not wanted:
+            return self._send(404, json.dumps(
+                {"error": "%s holds no connection now" % name}),
+                "application/json")
+        if is_system and stop:
+            # Freezing a piece of macOS is how a Mac stops answering its own
+            # network, its keychain, or its window server.
+            return self._send(400, json.dumps(
+                {"error": "%s is part of macOS; suspending it would take the "
+                          "system down with it" % name}), "application/json")
+        # Never this program. Applications are grouped by the bundle their
+        # executable lives in, and a Procwatch running on somebody's Python
+        # is grouped with everything else using that Python -- so "turn off
+        # Xcode" reached the server answering the request, which suspended
+        # itself mid-reply and could not be resumed from a page it was no
+        # longer serving. Verified the hard way.
+        ours = {os.getpid(), os.getppid()}
+        if stop and ours & set(wanted):
+            return self._send(400, json.dumps(
+                {"error": "%s is grouped with Procwatch itself, and "
+                          "suspending it would freeze the window you are "
+                          "reading" % name}), "application/json")
+        results = procs.signal_group(wanted, "STOP" if stop else "CONT")
+        done = [r for r in results if r["ok"]]
+        return self._send(200 if done else 400, json.dumps(
+            {"ok": bool(done), "stopped": stop, "app": name,
+             "count": len(done), "results": results,
+             "error": "" if done else (results[0].get("error") if results
+                                       else "nothing to signal")}),
+            "application/json")
 
     def do_OPTIONS(self):
         """Refuse preflight explicitly.
@@ -645,6 +1102,26 @@ def serve(port, open_browser=True, idle_timeout=IDLE_TIMEOUT):
     if not os.path.exists(config.DB_PATH):
         print("no database yet; run `procwatch install` and wait a minute")
         return 1
+    # The recorder notices new versions too, but a Mac running only the
+    # dashboard still deserves the "Procwatch was updated" event.
+    try:
+        conn = db.connect(config.DB_PATH)
+        try:
+            updated = selfupdate.note_if_updated(conn)
+            if updated:
+                alerts.announce(conn, "Procwatch updated",
+                                "Now running %s (was %s)"
+                                % (updated["to"], updated["from"]),
+                                target="events")
+            # With no menu bar app to collect the queue -- and possibly no
+            # recorder to sweep it -- whatever is waiting goes out the old
+            # way now rather than never.
+            if not alerts.bar_running():
+                alerts.deliver_stale(conn, wait=0)
+        finally:
+            conn.close()
+    except Exception:
+        pass          # a missed note must not cost the dashboard
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     httpd.last_seen = time.time()
     # Minted per run, so a token lifted from one session is useless against

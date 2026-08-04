@@ -10,8 +10,9 @@ import sys
 import time
 import traceback
 
-from . import (alerts, config, db, diagnose, events, identity, netstat, power,
-               psreader, rollup, rusage, sampler, storage, system, versions)
+from . import (alerts, config, db, diagnose, events, identity, netpeer,
+               netstat, power, psreader, rollup, rusage, sampler, selfupdate,
+               storage, system, versions)
 
 
 def _log(message):
@@ -58,8 +59,31 @@ def run_once(now=None):
     try:
         conn = db.connect(config.DB_PATH)
         db.init_schema(conn)
+        # The first tick of a new version is what makes an update real, so it
+        # is what gets recorded and announced -- however the code arrived.
+        try:
+            updated = selfupdate.note_if_updated(conn, now)
+            if updated:
+                _log("procwatch updated: %s -> %s"
+                     % (updated["from"], updated["to"]))
+                alerts.announce(conn, "Procwatch updated",
+                                "Now running %s (was %s)"
+                                % (updated["to"], updated["from"]),
+                                target="events", now=now)
+        except Exception as error:
+            _log("version note failed: %s" % error)
         sampler.tick(conn, procs, readings, now, extra, battery,
                      identity.classify(procs), identity.apps(procs))
+        # Who the machine was talking to, so the map can be asked about a time
+        # rather than only about now. A second nettop pass rather than reuse of
+        # the one above: that one runs with -P, which reports per-process totals
+        # and deliberately hides the sockets underneath them. Both passes cost
+        # about 20 ms since the reverse-DNS wait was removed.
+        try:
+            netpeer.record(conn, netstat.traffic(), now)
+            netpeer.prune(conn, now)
+        except Exception as error:
+            _log("peer history unavailable this tick: %s" % error)
         rollup.run(conn, now)
         rollup.disk_guard(conn, now, system.free_bytes())
         # Rules are checked against the rows just written. A rule that cannot
@@ -67,9 +91,20 @@ def run_once(now=None):
         # thing here that cannot be recovered later.
         try:
             for event in alerts.evaluate(conn, now):
-                alerts.notify(event)
+                # Queued rather than posted: the menu bar app collects these
+                # and shows them as Procwatch, and a click opens the process
+                # the alert is about. deliver_stale below is the fallback.
+                title, body = alerts.announcement(event)
+                alerts.announce(conn, title, body,
+                                target="find=" + event["exe"], now=now)
         except Exception as error:
             _log("alert evaluation failed: %s" % error)
+        try:
+            alerts.deliver_stale(
+                conn, now, wait=alerts.STALE_AFTER
+                if alerts.bar_running() else 0)
+        except Exception as error:
+            _log("note delivery failed: %s" % error)
         # Disk usage is a size, not a rate: it moves once a week and costs a
         # filesystem walk to measure, so it runs once a day. Last, so a slow
         # walk cannot delay the sample -- that is already written and
@@ -108,7 +143,9 @@ def run_once(now=None):
         # after them rather than beside them.
         try:
             if diagnose.watch_due(conn, now):
-                for finding in diagnose.watch(conn, now):
+                said = lambda title, body: alerts.announce(
+                    conn, title, body, target="why", now=now)
+                for finding in diagnose.watch(conn, now, post=said):
                     _log("finding: %s" % finding["headline"])
         except Exception as error:
             _log("finding watch failed: %s" % error)

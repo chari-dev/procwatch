@@ -252,6 +252,19 @@ class TestExplanationPopover(unittest.TestCase):
         self.assertTrue(wanted, "the page has no in-page links at all")
         self.assertEqual(sorted(wanted - targets), [])
 
+    def test_no_javascript_escape_is_written_into_the_markup(self):
+        """`\\u25a6` in HTML is four characters of text, not a glyph.
+
+        It shipped on the disk-space button and read as literal backslash-u.
+        Easy to write by accident: the same string is correct inside the
+        JavaScript a few lines below, where most of this file's text lives.
+        """
+        with open(PAGE) as handle:
+            page = handle.read()
+        # Only the markup: the script legitimately contains these escapes.
+        body = page[:page.index("<script>")] + page[page.rindex("</script>"):]
+        self.assertNotRegex(body, r"\\u[0-9a-fA-F]{4}")
+
     def test_the_landing_page_uses_no_em_dashes(self):
         # A house style, asked for directly. Easier to keep than to notice: an
         # em dash is what a rewritten sentence reaches for by default.

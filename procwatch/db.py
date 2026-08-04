@@ -109,10 +109,12 @@ def init_schema(conn):
         conn.executescript(_SUPPORT_DDL)
         # Owned by their modules, registered here so every database has them
         # from the first tick rather than from whenever that module first runs.
-        from . import diagnose, events, prefs
+        from . import diagnose, events, netpeer, prefs, space
         conn.executescript(events.DDL)
         conn.executescript(prefs.DDL)
         conn.executescript(diagnose.DDL)
+        conn.executescript(space.DDL)
+        conn.executescript(netpeer.DDL)
         for tier in config.TIERS:
             conn.executescript(_SAMPLE_DDL.format(tier=tier.name))
             conn.executescript(_SYSTEM_DDL.format(tier=tier.name))

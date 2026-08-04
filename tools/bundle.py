@@ -18,9 +18,10 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Dependency order: a module may only import ones already inlined above it.
 MODULES = [
-    "config", "identity", "psreader", "rusage", "netstat", "system",
+    "config", "selfupdate", "identity", "psreader", "rusage", "netstat",
+    "geoip", "netpeer", "battery", "icons", "system",
     "db", "archive", "alerts", "prefs", "storage", "power", "versions",
-    "knowledge", "events", "diagnose",
+    "knowledge", "events", "space", "diagnose",
     "appbuild", "share", "peers", "sampler",
     "rollup", "procs", "live", "query", "server",
     "launchd", "main", "cli",
@@ -66,6 +67,10 @@ def _install(name, source):
 FOOTER = '''
 
 _STATIC = _b64.b64decode(_INDEX_HTML_B64).decode("utf-8")
+_NETMON = _b64.b64decode(_NETMON_HTML_B64).decode("utf-8")
+_STORAGE = _b64.b64decode(_STORAGE_HTML_B64).decode("utf-8")
+_BATTERY = _b64.b64decode(_BATTERY_HTML_B64).decode("utf-8")
+_WORLD = _b64.b64decode(_WORLD_JS_B64).decode("utf-8")
 _server = _sys.modules["procwatch.server"]
 
 
@@ -74,7 +79,31 @@ def _dashboard_embedded():
     return _STATIC
 
 
+def _netmonitor_embedded():
+    """The network monitor page, from the same single file."""
+    return _NETMON
+
+
+def _storage_embedded():
+    """The storage page, from the same single file."""
+    return _STORAGE
+
+
+def _battery_embedded():
+    """The battery page, from the same single file."""
+    return _BATTERY
+
+
+def _world_embedded():
+    """The country outlines, from the same single file."""
+    return _WORLD
+
+
 _server.dashboard_html = _dashboard_embedded
+_server.netmonitor_html = _netmonitor_embedded
+_server.storage_html = _storage_embedded
+_server.battery_html = _battery_embedded
+_server.world_js = _world_embedded
 
 
 def _serve_embedded(self):
@@ -122,14 +151,19 @@ def build(out_path):
         parts.extend('    "%s"\n' % chunk for chunk in chunks)
         parts.append(")\n")
 
-    index = os.path.join(HERE, "procwatch", "static", "index.html")
-    with open(index, "rb") as handle:
-        encoded = base64.b64encode(handle.read()).decode("ascii")
-    # Wrapped so the line does not run to tens of thousands of characters.
-    chunks = [encoded[i:i + 76] for i in range(0, len(encoded), 76)]
-    parts.append("\n_INDEX_HTML_B64 = (\n")
-    parts.extend('    "%s"\n' % chunk for chunk in chunks)
-    parts.append(")\n")
+    for name, var in (("index.html", "_INDEX_HTML_B64"),
+                      ("netmonitor.html", "_NETMON_HTML_B64"),
+                      ("storage.html", "_STORAGE_HTML_B64"),
+                      ("battery.html", "_BATTERY_HTML_B64"),
+                      ("world.js", "_WORLD_JS_B64")):
+        page = os.path.join(HERE, "procwatch", "static", name)
+        with open(page, "rb") as handle:
+            encoded = base64.b64encode(handle.read()).decode("ascii")
+        # Wrapped so the line does not run to tens of thousands of characters.
+        chunks = [encoded[i:i + 76] for i in range(0, len(encoded), 76)]
+        parts.append("\n%s = (\n" % var)
+        parts.extend('    "%s"\n' % chunk for chunk in chunks)
+        parts.append(")\n")
     parts.append(FOOTER)
 
     with open(out_path, "w") as handle:

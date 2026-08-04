@@ -382,8 +382,8 @@ def prune(conn, now=None):
     """Forget holds and events older than the longest tier keeps samples."""
     init(conn)
     now = int(time.time()) if now is None else now
-    keep = max(t.keep for t in config.TIERS if t.keep) if any(
-        t.keep for t in config.TIERS) else 365 * 86400
+    keep = max([t.retain_seconds for t in config.TIERS if t.retain_seconds]
+               or [365 * 86400])
     cutoff = now - keep
     with conn:
         conn.execute("DELETE FROM power_hold WHERE last_ts < ? AND open = 0",

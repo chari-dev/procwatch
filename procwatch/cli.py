@@ -7,7 +7,7 @@ import sys
 import time
 
 from . import (alerts, appbuild, archive, config, db, diagnose, events,
-               knowledge, launchd, peers, power, prefs, query, share,
+               knowledge, launchd, peers, power, prefs, query, share, space,
                storage, versions)
 
 
@@ -214,6 +214,103 @@ def _why(args):
             for line in _wrap("-> " + finding["advice"], 74):
                 print("     %s" % line)
         print()
+    return 0
+
+
+def _space(args):
+    """`procwatch space` -- where the disk went.
+
+    The scan is the slow part and everything else is a view of it, so running
+    this without arguments scans if there is nothing stored and reports what it
+    finds either way.
+    """
+    conn = db.connect(config.DB_PATH)
+    try:
+        vol = space.volumes()["data"]
+        print("\n%s of %s used (%.0f%% full), %s free\n"
+              % (_size(vol["used"]), _size(vol["total"]), vol["percent"],
+                 _size(vol["free"])))
+
+        snaps = space.snapshots()
+        if snaps:
+            print("  %d Time Machine snapshot%s are holding space on this disk."
+                  % (len(snaps), "" if len(snaps) == 1 else "s"))
+            print("  macOS thins them under pressure; they are not yours to "
+                  "delete.\n")
+
+        found = space.latest(conn)
+        if args.scan or not found or not found["finished_ts"]:
+            print("  Walking %s. This takes a few minutes.\n"
+                  % (args.root or "~"))
+            started = time.time()
+
+            def tick(files, size):
+                print("\r  %,d files, %s so far" .replace(",d", "d")
+                      % (files, _size(size)), end="", flush=True)
+
+            space.scan(conn, args.root, progress=tick)
+            print("\r  done in %d seconds%s" % (time.time() - started, " " * 20))
+            found = space.latest(conn)
+
+        sid = found["id"]
+        print("\n  Scanned %s: %s across %s files\n"
+              % (found["root"].replace(os.path.expanduser("~"), "~"),
+                 _size(found["bytes"]), "{:,}".format(found["files"])))
+
+        print("  Biggest folders")
+        for row in space.biggest_dirs(conn, sid, under=args.under, limit=12):
+            about = space.explain(row["path"])
+            name = row["path"].replace(os.path.expanduser("~"), "~")
+            print("   %9s  %s%s" % (_size(row["bytes"]), name,
+                                    "  [safe to clear]" if about and about["safe"]
+                                    else ""))
+
+        print("\n  By kind")
+        for row in space.kinds(conn, sid)[:8]:
+            print("   %9s  %-12s %s files"
+                  % (_size(row["bytes"]), row["kind"],
+                     "{:,}".format(row["files"])))
+
+        owners = space.owners(conn, sid, limit=8)
+        if owners:
+            print("\n  By application")
+            for row in owners:
+                print("   %9s  %s" % (_size(row["bytes"]), row["owner"]))
+
+        print("\n  Biggest single files")
+        for row in space.biggest_files(conn, sid, limit=8):
+            print("   %9s  %s" % (_size(row["bytes"]),
+                                  row["path"].replace(os.path.expanduser("~"), "~")))
+        print()
+    finally:
+        conn.close()
+    return 0
+
+
+def _caches(args):
+    """`procwatch caches` -- what can be cleared, and clearing it."""
+    found = space.caches()
+    if not found:
+        print("\nNothing on the safe-to-clear list is taking any space.\n")
+        return 0
+    total = sum(c["bytes"] for c in found)
+    print("\n%s in caches that can be rebuilt\n" % _size(total))
+    for cache in found:
+        print("  %9s  %s" % (_size(cache["bytes"]), cache["path"]))
+        for line in _wrap(cache["why"], 68):
+            print("             %s" % line)
+    if not args.clear:
+        print("\nAdd --clear to move all of these to the Trash.\n")
+        return 0
+
+    print("\nMoving %d to the Trash." % len(found))
+    results = space.trash([c["full_path"] for c in found])
+    for result in results:
+        if not result["ok"]:
+            print("  kept %s: %s" % (result["path"], result["error"]))
+    moved = sum(1 for r in results if r["ok"])
+    print("Moved %d of %d. Nothing is gone until you empty the Trash.\n"
+          % (moved, len(results)))
     return 0
 
 
@@ -573,6 +670,17 @@ def main(argv=None):
                         help="stop working out what happened entirely")
     finder.add_argument("--on", action="store_true", help="start again")
 
+    # Where the disk went, and what can be taken back.
+    spacer = sub.add_parser("space")
+    spacer.add_argument("--scan", action="store_true",
+                        help="walk again rather than using the stored scan")
+    spacer.add_argument("--root", help="somewhere other than your home folder")
+    spacer.add_argument("--under", help="list the folders inside this one")
+
+    cacher = sub.add_parser("caches")
+    cacher.add_argument("--clear", action="store_true",
+                        help="move them all to the Trash")
+
     sleeper = sub.add_parser("sleep")
     sleeper.add_argument("--for", dest="span", default="1d")
 
@@ -590,6 +698,14 @@ def main(argv=None):
     sharer.add_argument("--port", type=int, default=share.DEFAULT_PORT)
     sharer.add_argument("--new-key", action="store_true",
                         help="forget the old key and print a new one")
+    # The key travels as a plain header over plain HTTP, so which interface
+    # this listens on is a security decision rather than a detail. It stays
+    # open by default -- that is what makes a second Mac on the sofa work --
+    # but a machine reachable from the internet wants 127.0.0.1 and an SSH
+    # tunnel, and until this existed there was no way to say so.
+    sharer.add_argument("--host", default="0.0.0.0",
+                        help="interface to listen on; 127.0.0.1 to accept "
+                             "only connections tunnelled to this machine")
 
     builder = sub.add_parser("app")
     builder.add_argument("--to", default="/Applications")
@@ -630,6 +746,10 @@ def main(argv=None):
         return _peer(args)
     if args.command == "why":
         return _why(args)
+    if args.command == "space":
+        return _space(args)
+    if args.command == "caches":
+        return _caches(args)
     if args.command == "findings":
         if args.on and args.off:
             print("--on and --off contradict each other", file=sys.stderr)
@@ -654,7 +774,7 @@ def main(argv=None):
         print(secret)
         return 0
     if args.command == "share":
-        return share.serve(args.port, reset=args.new_key)
+        return share.serve(args.port, host=args.host, reset=args.new_key)
     if args.command == "app":
         try:
             path = appbuild.build(args.to)

@@ -79,9 +79,35 @@ button:hover{color:var(--ink);border-color:var(--ink3)}
 select{font:inherit;font-size:12.5px;color:var(--ink);background:var(--card);
  border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer}
 h1{font-size:32px;font-weight:640;letter-spacing:-.03em;margin:0 0 12px}
-.strip{display:flex;flex-wrap:wrap;color:var(--ink2);font-size:13.5px;margin-bottom:28px}
+.strip{display:flex;flex-wrap:wrap;color:var(--ink2);font-size:13.5px;margin-bottom:16px}
 .strip div{padding:0 12px;border-left:1px solid var(--line)}
 .strip div:first-child{padding-left:0;border-left:0}
+
+/* ---- vitals --------------------------------------------------------------
+   What the machine is doing right now, under the line that says what the
+   machine is. Four numbers with the shape of the last hour behind each, so
+   "34%" also says whether it is climbing -- and each one is a door to the
+   page that owns that metric. */
+.vitals{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;
+ margin-bottom:26px}
+@media(max-width:900px){.vitals{grid-template-columns:repeat(2,1fr)}}
+.vital{background:var(--card);border:1px solid var(--line);
+ border-radius:var(--r);padding:13px 15px 9px;position:relative;
+ text-decoration:none;color:inherit;display:block;min-width:0;
+ transition:border-color .12s}
+.vital:hover{border-color:var(--ink3)}
+.vital .k{font-size:10.5px;color:var(--ink3);text-transform:uppercase;
+ letter-spacing:.06em}
+.vital .v{font-size:25px;font-weight:600;letter-spacing:-.02em;margin-top:1px;
+ font-variant-numeric:tabular-nums;white-space:nowrap}
+.vital .v small{font-size:13px;font-weight:500;color:var(--ink3);
+ letter-spacing:0}
+.vital .sub{font-size:11.5px;color:var(--ink3);white-space:nowrap;
+ overflow:hidden;text-overflow:ellipsis}
+.vital canvas{display:block;width:100%;height:28px;margin-top:5px}
+.vital .arrow{position:absolute;top:11px;right:12px;color:var(--ink3);
+ font-size:11px}
+.vital:hover .arrow{color:var(--ink2)}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
 @media(max-width:900px){.grid{grid-template-columns:1fr}}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
@@ -95,13 +121,20 @@ h1{font-size:32px;font-weight:640;letter-spacing:-.03em;margin:0 0 12px}
 svg{display:block;width:100%;max-width:100%;overflow:hidden}
 .gl{stroke:var(--grid);stroke-width:1}
 .ax{fill:var(--ink3);font-size:12px}
-.legend{display:flex;flex-wrap:wrap;gap:7px 18px;margin-top:14px;padding-top:14px;
- border-top:1px solid var(--line);font-size:13px}
-.legend b{font-weight:450;color:var(--ink2)}
-.legend i{width:9px;height:9px;border-radius:2.5px;display:inline-block;
- margin-right:6px;vertical-align:0}
-.legend em{font-style:normal;color:var(--ink3);margin-left:5px;
- font-variant-numeric:tabular-nums}
+/* A table, not a wrapped row of coloured words.
+   The value used to trail each name in a paragraph that reflowed with the
+   window, so reading "how much did Arc use" meant finding Arc among the words
+   and then hovering the chart. As rows, the numbers line up in a column and
+   the chart answers that without being touched -- hovering then refines
+   rather than being the only way in. */
+.legend{display:flex;flex-direction:column;margin-top:12px;padding-top:9px;
+ border-top:1px solid var(--line);font-size:12.5px}
+.legend b{display:flex;align-items:center;gap:8px;font-weight:450;
+ color:var(--ink2)}
+.legend i{width:9px;height:9px;border-radius:2.5px;flex:none}
+/* Pushed to the right edge so every value shares one column. */
+.legend em{font-style:normal;color:var(--ink);margin-left:auto;
+ font-variant-numeric:tabular-nums;font-size:12px}
 .tip{position:fixed;pointer-events:none;opacity:0;transition:opacity .1s;
  background:var(--card);border:1px solid var(--line);border-radius:11px;padding:10px 12px;
  backdrop-filter:blur(8px);
@@ -142,8 +175,6 @@ svg{display:block;width:100%;max-width:100%;overflow:hidden}
  gap:var(--cellgap);align-items:center}
 .yeargrid .lbl{font-size:10px;color:var(--ink3);text-align:right;
  padding-right:4px;white-space:nowrap}
-.yeargrid .mon{position:relative;font-size:10.5px;color:var(--ink3);
- white-space:nowrap;line-height:1.2;overflow:visible;min-width:0}
 .yeargrid i{display:block;width:100%;aspect-ratio:1;border-radius:2px;
  background:var(--raise);min-height:7px}
 .yeargrid i.empty{background:transparent;box-shadow:inset 0 0 0 1px var(--line)}
@@ -166,7 +197,10 @@ svg{display:block;width:100%;max-width:100%;overflow:hidden}
 .band{transition:opacity .12s}
 .dimmed .band{opacity:.12}
 .dimmed .band.lit{opacity:1}
-.legend b{cursor:default;border-radius:5px;padding:1px 4px;margin:-1px -4px;
+/* Row-shaped now that the legend is a table: the hover and the pinned state
+   fill the whole row, so the target is the line you are reading rather than
+   the few characters of the name. */
+.legend b{cursor:default;border-radius:6px;padding:3px 7px;margin:0 -7px;
  transition:background .12s}
 .legend b{cursor:pointer}
 .legend b:hover{background:var(--raise)}
@@ -221,6 +255,28 @@ g.shift{will-change:transform}
  padding:8px 14px;font-size:12.5px;color:var(--ink2);
  box-shadow:0 10px 30px rgba(0,0,0,.35)}
 #banner[hidden]{display:none}
+/* The update pill. Quiet until there is news, then one small verb in the
+   toolbar rather than a dialog: an update is worth knowing about, not worth
+   interrupting a question about why the machine is slow. */
+#upbadge{border:1px solid var(--line);background:var(--raise);color:var(--ink2);
+ border-radius:999px;padding:5px 11px;font-size:12px;cursor:pointer;
+ white-space:nowrap}
+#upbadge:hover{color:var(--ink)}
+#upbadge.armed{border-color:var(--warn,#c90);color:var(--ink)}
+#upbadge[hidden]{display:none}
+#upstatus{color:var(--ink3);font-size:12px}
+/* The doorway to the network monitor page, sitting in the chart title. */
+.appicon{width:20px;height:20px;flex:none;object-fit:contain;
+ margin-right:6px;vertical-align:-5px}
+/* Beside a name in a table, a legend or a list: small enough to sit on the
+   text baseline without pushing the row taller than it was. */
+.appicon.tiny{width:14px;height:14px;margin-right:5px;
+ vertical-align:-2px}
+.legend .appicon.tiny{margin-right:3px;vertical-align:-3px}
+.netmonlink{float:right;font-size:11.5px;font-weight:450;color:var(--ink3);
+ text-decoration:none;border:1px solid var(--line);border-radius:999px;
+ padding:2px 10px}
+.netmonlink:hover{color:var(--ink);border-color:var(--ink3)}
 .sheet{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.45);
  display:flex;align-items:flex-start;justify-content:center;padding:64px 20px;
  overflow:auto;backdrop-filter:blur(3px)}
@@ -384,6 +440,51 @@ g.shift{will-change:transform}
 .updrow .vers{margin-left:7px;color:var(--ink2);
  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px}
 .updrow .when{margin-left:9px;color:var(--ink3);font-size:11.5px}
+.spacebox{width:min(760px,100%)}
+.volbar{height:12px;border-radius:6px;background:var(--raise);overflow:hidden;
+ display:flex;margin:10px 0 8px}
+.volbar i{display:block;height:100%}
+.volnote{font-size:12.5px;color:var(--ink2);line-height:1.6}
+.volnote b{color:var(--ink);font-weight:560}
+.spacepart{margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}
+.spacepart h3{margin:0 0 10px;font-size:12.5px;font-weight:560;color:var(--ink)}
+.sprow{display:flex;align-items:baseline;gap:12px;padding:7px 0;
+ border-top:1px solid var(--line);font-size:12.5px}
+.sprow:first-of-type{border-top:0}
+.sprow .amt{width:78px;text-align:right;color:var(--ink);font-weight:560;
+ font-variant-numeric:tabular-nums;flex:none}
+.sprow .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
+ white-space:nowrap;color:var(--ink2)}
+.sprow .name b{color:var(--ink);font-weight:560}
+.sprow button{border:1px solid var(--line);background:transparent;
+ color:var(--ink2);font:inherit;font-size:11.5px;padding:3px 9px;
+ border-radius:7px;cursor:pointer;flex:none}
+.sprow button:hover{border-color:var(--s1);color:var(--ink)}
+.sprow .why{color:var(--ink3);font-size:11.5px}
+.treemap{position:relative;width:100%;border-radius:10px;overflow:hidden;
+ background:var(--raise);margin-top:4px}
+.treemap .tile{position:absolute;overflow:hidden;cursor:pointer;
+ box-shadow:inset 0 0 0 1px var(--bg);padding:6px 8px;
+ display:flex;flex-direction:column;justify-content:flex-start;gap:2px;
+ transition:filter .12s}
+.treemap .tile:hover{filter:brightness(1.25);z-index:2}
+.treemap .tname{font-size:11.5px;font-weight:560;color:#0b0b0d;line-height:1.25;
+ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.treemap .tsize{font-size:10.5px;color:rgba(11,11,13,.72);line-height:1.2}
+.spdrill{cursor:pointer}
+.spdrill:hover .name b{color:var(--s1)}
+.spsafe{color:var(--s3);font-size:11px;white-space:nowrap;flex:none}
+.spbar{height:8px;border-radius:4px;background:var(--raise);overflow:hidden;
+ margin-top:9px;display:flex}
+.spbar i{display:block;height:100%}
+.spkey{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:9px;font-size:11.5px;
+ color:var(--ink3)}
+.spkey i{display:inline-block;width:9px;height:9px;border-radius:2px;
+ margin-right:5px;vertical-align:-1px}
+.spcrumb{font-size:11.5px;color:var(--ink3);margin-bottom:8px;
+ word-break:break-all}
+.spcrumb button{border:0;background:transparent;color:var(--s1);font:inherit;
+ font-size:11.5px;cursor:pointer;padding:0}
 .battnote{margin:9px 0 2px;font-size:11.5px;color:var(--ink3);line-height:1.6}
 .battnote b{color:var(--ink2);font-weight:560}
 .growthnote{margin-bottom:14px;font-size:12px;color:var(--ink2);
@@ -694,6 +795,11 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
         <div id="findings"></div>
       </div>
     </div>
+    <!-- Hidden until the server has actually seen a newer version. Two
+         presses on purpose: the first arms it and names the version, the
+         second installs. One press replacing the program is one press too
+         few. -->
+    <button id="upbadge" hidden title="A newer procwatch is available"></button>
     <div class="menuwrap">
       <button id="burger" aria-label="Menu" aria-expanded="false"
               aria-haspopup="true">&#9776;</button>
@@ -708,6 +814,9 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
         <a id="inbrowser" class="menuitem" role="menuitem" href="/"
            target="_blank" rel="noopener">
           <span class="mi">&#8599;</span>Open in browser</a>
+        <button id="cleanup" class="menuitem" role="menuitem"
+                title="Move refillable caches and removed applications' leftovers to the Trash">
+          <span class="mi">&#9851;</span>Clean up&hellip;</button>
         <button id="gear" class="menuitem" role="menuitem">
           <span class="mi">&#9881;</span>Settings&hellip;</button>
       </div>
@@ -736,6 +845,11 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
   <div id="whatbody"></div>
 </div>
 
+<!-- The disk diagnosis.
+
+     Its own sheet rather than another card: it walks the disk for minutes, it
+     can move files to the Trash, and neither of those belongs on a page that
+     refreshes itself every two seconds. Nothing here runs until it is opened. -->
 <div class="sheet" id="settings" hidden>
   <div class="sheetbox">
     <div class="sheethead"><h2>Settings</h2>
@@ -770,6 +884,22 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
         this page is open. It stays quiet about the same finding for six hours
         afterwards &mdash; Spotlight reindexing for an afternoon is one piece of
         news, not thirty.</small>
+    </div>
+
+    <!-- The only setting here that sends anything off this Mac, so it says
+         so plainly and sits next to the others that change what the recorder
+         does rather than how the page looks. -->
+    <div class="setrow">
+      <label for="setgeo">Locate servers</label>
+      <select id="setgeo">
+        <option value="1">Yes &mdash; ask ipwho.is</option>
+        <option value="0">No &mdash; keep every address here</option>
+      </select>
+      <small>Puts the network monitor's connections on the globe by their
+        address. Peer addresses are sent to ipwho.is to do it, and the answers
+        are cached. With this off, locations are guessed from server names
+        instead and nothing leaves this Mac. Addresses on your own network are
+        never sent either way.</small>
     </div>
 
     <div class="setrow">
@@ -818,6 +948,18 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
     <div class="setrow wide">
       <label>Charts shown</label>
       <div class="checks" id="setcharts"></div>
+    </div>
+
+    <div class="setrow wide">
+      <label>Version</label>
+      <div class="setactions">
+        <button id="upcheck" class="ghost">Check for updates</button>
+        <span id="upstatus" class="hint"></span>
+      </div>
+      <small>Compared against
+        <a href="https://github.com/chari-dev/procwatch" target="_blank"
+           rel="noopener">github.com/chari-dev/procwatch</a>. Installing
+        updates in place; quit and reopen Procwatch afterwards.</small>
     </div>
 
     <div class="setrow wide">
@@ -881,8 +1023,13 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
 
 <h1 id="host">&nbsp;</h1>
 <div class="strip" id="strip"></div>
+<div class="vitals" id="vitals"></div>
 
-<div class="summary" id="summary"></div>
+<!-- The summary row (CPU / Memory / Disk / Disk I/O / Swap) was removed once
+     the vitals tiles above took the same job. Two rows of live percentages
+     one under the other is one row too many, and the tiles carry the shape as
+     well as the number. renderSummary is left in place and simply finds no
+     element to write to. -->
 
 <div class="grid" id="history">
   <div class="card wide" data-chart="cpu">
@@ -909,7 +1056,14 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
     <div class="legend" id="energyleg"></div>
   </div>
   <div class="card" data-chart="net">
-    <h2>Network by process<button class="info" type="button" aria-label="What this shows">i<em>Bytes in and out per second, summed across an app's processes.</em></button></h2>
+    <h2>Network by process<button class="info" type="button" aria-label="What this shows">i<em>Bytes in and out per second, summed across an app's processes.</em></button>
+      <!-- The live half of this chart lives on its own page: an instrument
+           someone leaves open earns a window, not a card. target=_blank so
+           the menu bar panel hands it to the real browser. -->
+      <!-- Opens in place: in the menu bar panel this is the panel, and in a
+           browser it is the tab. Either way it is where you already were. -->
+      <a class="netmonlink" href="/net"
+         title="Every live connection, who it talks to, and at what rate">Live monitor</a></h2>
     <div id="net"></div>
     <div class="legend" id="netleg"></div>
   </div>
@@ -951,13 +1105,10 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
     <div id="eventsbody" hidden></div>
   </div>
 
-  <div class="card wide" data-chart="sleep" id="sleepcard">
-    <h2>Sleep and battery<button class="info" type="button"
-      aria-label="What this shows">i<em>What woke your Mac, what stopped it
-      sleeping, and what the lid being shut cost. Read from the power log,
-      which macOS keeps whether or not anything is watching.</em></button></h2>
-    <div id="sleepbody"><div class="msg">Reading the power log&hellip;</div></div>
-  </div>
+  <!-- Sleep and battery live at /battery now, and disk space by application
+       at /disk. Both were removed from here rather than left as summaries:
+       a card that repeats a page's headline is a second place for the same
+       answer to go stale. -->
 
   <div class="card wide" data-chart="updates" id="updatescard">
     <h2>After an update<button class="info" type="button"
@@ -965,11 +1116,6 @@ table.rows .sub{color:var(--ink3);font-size:11px;display:block}
       so its usage before an update can be compared with after. Only differences
       large enough to mean something are shown.</em></button></h2>
     <div id="updatesbody"><div class="msg">Watching for updates&hellip;</div></div>
-  </div>
-
-  <div class="card wide" data-chart="storage" id="storagecard">
-    <h2>Disk space by application<button class="info" type="button" aria-label="What this shows">i<em>The bundle, its data in Application&nbsp;Support, and its caches together &mdash; measured once a day, because it is a size rather than a rate.</em></button></h2>
-    <div id="storagebody"><div class="msg">Not measured yet.</div></div>
   </div>
 
   <div class="card wide" data-chart="activity" id="activity">
@@ -1344,7 +1490,8 @@ var drawStacked = function (elId, legId, field, unit, fmt, h, asShare) {
     }
     return '<b data-series="' + esc(s.exe) + '"' +
            (PINNED === s.exe ? ' class="lit"' : "") + '><i style="background:' +
-           colourOf(colourIndexOf(s), s.is_other) + '"></i>' + esc(labelOf(s.exe)) +
+           colourOf(colourIndexOf(s), s.is_other) + '"></i>' +
+           appIconByName(s.app || s.exe, 32, "tiny") + esc(labelOf(s.exe)) +
            "<em>" +
            esc(fmt(peak)) + "</em></b>";
   }).join("");
@@ -1534,7 +1681,8 @@ var drawBattery = function (elId, legId, h) {
     var share = grandTotal > 0 ? mine / grandTotal * 100 : 0;
     return '<b data-series="' + esc(s.exe) + '"' +
       (PINNED === s.exe ? ' class="lit"' : "") + '><i style="background:' +
-      colourOf(colourIndexOf(s), s.is_other) + '"></i>' + esc(labelOf(s.exe)) +
+      colourOf(colourIndexOf(s), s.is_other) + '"></i>' +
+      appIconByName(s.app || s.exe, 32, "tiny") + esc(labelOf(s.exe)) +
       "<em>" + share.toFixed(1) + "%" +
       (spent > 0 ? " \u00b7 ~" + fmtWh(spent * share / 100) : "") +
       "</em></b>";
@@ -1869,7 +2017,8 @@ var detailRow = function (g, i) {
       "<td></td></tr>";
   }
   if (!g.kids.length) {
-    return "<tr><td>" + esc(r.exe) +
+    return "<tr><td>" + appIconByName(r.app || r.exe, 32, "tiny") +
+      esc(r.exe) +
       (r.cmdline && r.cmdline !== r.exe
         ? '<span class="cmd">' + esc(r.cmdline) + "</span>" : "") +
       "</td>" + detailCells(r) + detailActions(r) + "</tr>";
@@ -1888,6 +2037,7 @@ var detailRow = function (g, i) {
   return '<tr class="parent" data-kids="d' + i + '"><td>' +
       '<button class="disc" aria-expanded="false" ' +
       'aria-label="Show the processes in ' + esc(r.exe) + '">\u25b6</button>' +
+      appIconByName(r.app || r.exe, 32, "tiny") +
       esc(r.exe) + '<span class="cmd">' + g.kids.length + " processes</span>" +
       "</td>" + detailCells(r) + detailActions(r, union) + "</tr>" +
     g.kids.map(function (k) {
@@ -2190,6 +2340,10 @@ var newestSystem = function () {
 
 var renderSummary = function () {
   var el = document.getElementById("summary");
+  // The row it wrote to was removed in favour of the vitals tiles. Guarded
+  // rather than deleted: it is called from three places, and an unguarded
+  // write to a missing element throws and takes the rest of the tick with it.
+  if (!el) { return; }
   // Prefer the live reading; fall back to the newest stored bucket before the
   // first live sample lands.
   var sys = (NOW && !NOW.warming_up) ? NOW.system : newestSystem();
@@ -2450,33 +2604,16 @@ var loadActivity = function () {
       var weeks = Math.ceil((today - first) / (7 * 86400000)) + 1;
 
       /* Built row by row, which is what keeps it aligned. Emitting the day
-         labels, the month headings and the cells as three separate grids meant
-         three sets of row and column sizes that had to be talked into agreeing;
-         one grid filled row-major needs no agreement, and 1fr columns make it
-         fill the card instead of stopping two thirds of the way across. */
-      var monthAt = {};
-      for (var w = 0; w < weeks; w++) {
-        var monday = new Date(first);
-        monday.setDate(monday.getDate() + w * 7);
-        // The month a week belongs to is the month most of it is in, which is
-        // the month of its Thursday. Using the Monday labels a week that starts
-        // on the 30th as the old month and puts the heading a column early.
-        var thursday = new Date(monday);
-        thursday.setDate(thursday.getDate() + 3);
-        if (monthAt[thursday.getMonth()] === undefined) {
-          monthAt[thursday.getMonth()] = w;
-        }
-      }
-      var monthByWeek = {};
-      Object.keys(monthAt).forEach(function (m) {
-        monthByWeek[monthAt[m]] = new Date(2000, Number(m), 1)
-          .toLocaleDateString([], {month: "short"});
-      });
+         labels and the cells as separate grids meant two sets of row and
+         column sizes that had to be talked into agreeing; one grid filled
+         row-major needs no agreement, and 1fr columns make it fill the card
+         instead of stopping two thirds of the way across.
 
-      var html = '<div class="lbl"></div>';
-      for (var w = 0; w < weeks; w++) {
-        html += '<div class="mon">' + (monthByWeek[w] || "") + "</div>";
-      }
+         No month headings. Every cell already says its own date when you
+         point at it, and a row of abbreviated months across the top was a
+         second, coarser time axis for a grid that only ever gets read a
+         square at a time. */
+      var html = "";
       var names = ["Mon", "", "Wed", "", "Fri", "", ""];
       for (var dow = 0; dow < 7; dow++) {
         html += '<div class="lbl">' + names[dow] + "</div>";
@@ -2521,6 +2658,158 @@ var loadActivity = function () {
       if (el) { el.innerHTML = '<div class="msg">Could not load activity.</div>'; }
     });
 };
+
+/* ---- vitals ---------------------------------------------------------------
+   Four live numbers under the machine's description, each with the shape of
+   the last couple of minutes behind it.
+
+   Kept deliberately self-contained: its own poll, its own history, its own
+   render. It reads /api/now, which is a direct reading of the machine that
+   writes nothing, and it touches none of the chart state -- so nothing here
+   can disturb the hover, the pinning or the scrubbing.
+
+   The history is in memory rather than fetched. A sparkline only has to show
+   the shape since you opened the page; asking the recorder for a series to
+   draw a line 28 pixels tall would be a request per tile per poll for detail
+   nobody can see at that size. */
+var VITAL_KEEP = 60;
+var VITALS = {cpu: [], mem: [], net: [], batt: []};
+
+var pushVital = function (key, value) {
+  var run = VITALS[key];
+  run.push(value);
+  if (run.length > VITAL_KEEP) { run.shift(); }
+};
+
+var sparkline = function (canvas, run, colour) {
+  if (!canvas) { return; }
+  var dpr = window.devicePixelRatio || 1;
+  var w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w || !h) { return; }
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  var g = canvas.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  if (run.length < 2) { return; }
+  // Scaled to its own run, not to 100: a memory line that never leaves 88-92%
+  // is flat against a 0-100 axis and says nothing. The floor is held at zero
+  // for rates so a quiet network does not magnify its own noise into a
+  // mountain range.
+  var top = Math.max.apply(null, run) || 1;
+  var x = function (i) { return w * i / (run.length - 1); };
+  var y = function (v) { return h - 2 - (v / top) * (h - 5); };
+  g.beginPath();
+  run.forEach(function (v, i) {
+    if (i === 0) { g.moveTo(x(i), y(v)); } else { g.lineTo(x(i), y(v)); }
+  });
+  g.strokeStyle = colour;
+  g.lineWidth = 1.5;
+  g.lineJoin = "round";
+  g.stroke();
+  g.lineTo(w, h); g.lineTo(0, h); g.closePath();
+  g.globalAlpha = 0.14;
+  g.fillStyle = colour;
+  g.fill();
+  g.globalAlpha = 1;
+};
+
+var vitalTile = function (href, key, value, unit, sub, id) {
+  return '<a class="vital" href="' + href + '" target="_blank">' +
+    '<span class="arrow">↗</span>' +
+    '<div class="k">' + esc(key) + "</div>" +
+    '<div class="v">' + esc(value) +
+    (unit ? "<small>" + esc(unit) + "</small>" : "") + "</div>" +
+    '<div class="sub">' + esc(sub) + "</div>" +
+    '<canvas data-spark="' + esc(id) + '"></canvas></a>';
+};
+
+var renderVitals = function (now) {
+  var box = document.getElementById("vitals");
+  if (!box || !now || !now.system) { return; }
+  var sys = now.system;
+  var cores = (META && META.cores) || 8;
+  var totalKb = (META && META.mem_total_kb) || 0;
+
+  var cpuPct = Math.max(0, Math.min(100, (sys.cpu_busy || 0) / cores));
+  var memKb = (sys.mem_used_kb || 0) + (sys.mem_comp_kb || 0);
+  var memPct = totalKb ? (memKb / totalKb) * 100 : 0;
+  var swapKb = sys.swap_used_kb || 0;
+  var batt = now.battery || null;
+
+  pushVital("cpu", cpuPct);
+  pushVital("mem", memPct);
+  pushVital("batt", batt && batt.percent != null ? batt.percent : 0);
+
+  var busiest = "";
+  (now.groups || []).forEach(function (grp) {
+    if (!busiest && grp && (grp.app || grp.exe)) { busiest = grp.app || grp.exe; }
+  });
+
+  var html =
+    vitalTile("/", "Processor", cpuPct.toFixed(0), "%",
+              busiest ? "busiest: " + busiest : cores + " cores", "cpu") +
+    vitalTile("/", "Memory", fmtBytes(memKb), "",
+              swapKb ? fmtBytes(swapKb) + " swapped" : "nothing swapped", "mem") +
+    vitalTile("/net", "Network", NET_NOW.label, NET_NOW.unit,
+              NET_NOW.sub, "net");
+  if (batt && batt.percent != null) {
+    html += vitalTile("/battery", "Battery", String(batt.percent), "%",
+      batt.on_ac ? "on mains" : "on battery", "batt");
+  } else {
+    html += vitalTile("/battery", "Power", "Mains", "", "no battery", "batt");
+  }
+  box.innerHTML = html;
+
+  var stroke = {cpu: "--s1", mem: "--s5", net: "--s3", batt: "--s6"};
+  Object.keys(stroke).forEach(function (k) {
+    sparkline(box.querySelector('[data-spark="' + k + '"]'),
+              VITALS[k], css(stroke[k]));
+  });
+};
+
+/* Network is a rate, and /api/now does not carry one -- the live panel gets
+   it from the background nettop pass. Read on its own slower beat, because a
+   pass is cheap but not free and a number this size does not need two-second
+   resolution. */
+var NET_NOW = {label: "—", unit: "", sub: "reading"};
+var loadNetVital = function () {
+  fetch(api("/api/nettraffic")).then(function (r) { return r.json(); })
+    .then(function (d) {
+      var into = 0, out = 0, peers = 0;
+      (d.apps || []).forEach(function (a) {
+        into += (a.rate_in || 0); out += (a.rate_out || 0);
+        peers += (a.conns || []).length;
+      });
+      var rate = into + out;
+      pushVital("net", rate);
+      NET_NOW = {label: fmtBytes(rate / 1024), unit: "/s",
+                 sub: peers + (peers === 1 ? " connection" : " connections")};
+    })
+    .catch(function () {});
+};
+
+var loadVitals = function () {
+  fetch(api("/api/now")).then(function (r) { return r.json(); })
+    .then(function (d) { renderVitals(d); })
+    .catch(function () {});
+};
+
+loadVitals();
+loadNetVital();
+// Two beats: the machine's own reading is cheap and wants to look live; the
+// network pass is a subprocess on the recorder's side and does not.
+setInterval(loadVitals, 2000);
+setInterval(loadNetVital, 10000);
+window.addEventListener("resize", function () {
+  var box = document.getElementById("vitals");
+  if (!box) { return; }
+  var stroke = {cpu: "--s1", mem: "--s5", net: "--s3", batt: "--s6"};
+  Object.keys(stroke).forEach(function (k) {
+    sparkline(box.querySelector('[data-spark="' + k + '"]'),
+              VITALS[k], css(stroke[k]));
+  });
+});
 
 var loadMeta = function () {
   fetch(api("/api/info")).then(function (r) { return r.json(); }).then(function (m) {
@@ -3454,7 +3743,8 @@ var loadUpdates = function () {
         var head = '<div class="updrow updapp" data-app="' + esc(a.app) + '">' +
           '<div><button class="disc" aria-expanded="' + (open ? "true" : "false") +
           '" aria-label="Show every version of ' + esc(a.app) + '">' +
-          (open ? "\u25bc" : "\u25b6") + "</button><b>" + esc(a.app) + "</b>" +
+          (open ? "\u25bc" : "\u25b6") + "</button>" +
+          appIconByName(a.app, 32, "tiny") + "<b>" + esc(a.app) + "</b>" +
           '<span class="vers">' + esc(oldest.version) + " \u2192 " +
           esc(newest.version) + "</span>" +
           '<span class="when">' + a.versions.length + " versions</span></div>" +
@@ -3495,6 +3785,603 @@ var loadUpdates = function () {
       el.innerHTML = '<div class="msg">Could not read update history.</div>';
     });
 };
+
+/* ---- where the disk went ------------------------------------------------
+ 
+   Opened from the disk-space card, and asleep until then: it walks the disk for
+   minutes and it can move files to the Trash, neither of which belongs on a page
+   that refreshes every two seconds.
+ 
+   The scan runs on the recorder's side and this polls it, so closing the panel
+   or reloading the page does not lose the work. */
+var SPACE_UNDER = null;      // which folder is being looked inside
+var spaceTimer = null;
+
+var openSpace = function (open) {
+  var sheet = document.getElementById("spacesheet");
+  if (!sheet) { return; }
+  sheet.hidden = !open;
+  clearInterval(spaceTimer);
+  if (open) {
+    loadSpace();
+    // Only while it is on screen. A walk of the disk reports progress once a
+    // second and there is nothing to show it to when the sheet is shut.
+    spaceTimer = setInterval(function () {
+      if (SPACE_SCANNING) { loadSpace(); }
+    }, 1500);
+  }
+};
+
+var SPACE_SCANNING = false;
+
+var loadSpace = function () {
+  var el = document.getElementById("spacebody");
+  if (!el) { return; }
+  fetch(api("/api/space", SPACE_UNDER ? {under: SPACE_UNDER} : {}))
+    .then(function (r) { return r.json(); })
+    .then(function (d) { drawSpace(el, d); })
+    .catch(function () {
+      el.innerHTML = '<div class="msg">Could not read the disk.</div>';
+    });
+};
+
+/* A treemap of what is on the disk.
+
+   The one picture that answers "where did it go" without reading anything: area
+   is bytes, so the biggest thing is the biggest rectangle and there is no axis
+   to interpret. Clicking one goes inside it, which is the same drill the list
+   below does.
+
+   Squarified rather than sliced. The naive layout cuts one strip per item and
+   produces slivers a thousand pixels long and four wide, which cannot be
+   labelled or clicked; squarifying keeps each rectangle as close to square as
+   it can, which is what makes the areas comparable by eye. */
+var squarify = function (items, x, y, w, h) {
+  var out = [];
+  var total = items.reduce(function (a, i) { return a + i.value; }, 0);
+  if (total <= 0 || w <= 0 || h <= 0) { return out; }
+
+  var scale = (w * h) / total;
+  var rest = items.slice();
+  var row = [];
+
+  // How square the worst rectangle in a row would be. Lower is better, and the
+  // row is closed as soon as adding another item makes it worse.
+  var worst = function (row, side) {
+    if (!row.length) { return Infinity; }
+    var sum = row.reduce(function (a, i) { return a + i.value * scale; }, 0);
+    var top = Math.max.apply(null, row.map(function (i) { return i.value * scale; }));
+    var low = Math.min.apply(null, row.map(function (i) { return i.value * scale; }));
+    return Math.max((side * side * top) / (sum * sum),
+                    (sum * sum) / (side * side * low));
+  };
+
+  var place = function (row, x, y, w, h, horizontal) {
+    var sum = row.reduce(function (a, i) { return a + i.value * scale; }, 0);
+    var thick = horizontal ? sum / w : sum / h;
+    var at = 0;
+    row.forEach(function (item) {
+      var area = item.value * scale;
+      var length = thick > 0 ? area / thick : 0;
+      out.push(horizontal
+        ? {item: item, x: x + at, y: y, w: length, h: thick}
+        : {item: item, x: x, y: y + at, w: thick, h: length});
+      at += length;
+    });
+    return thick;
+  };
+
+  while (rest.length) {
+    var horizontal = w >= h;
+    var side = horizontal ? h : w;
+    // Grow the row while it keeps getting squarer.
+    while (rest.length) {
+      var next = row.concat([rest[0]]);
+      if (row.length && worst(next, side) > worst(row, side)) { break; }
+      row.push(rest.shift());
+    }
+    var thick = place(row, x, y, w, h, !horizontal);
+    if (horizontal) { x += thick; w -= thick; } else { y += thick; h -= thick; }
+    row = [];
+    if (w < 1 || h < 1) { break; }
+  }
+  return out;
+};
+
+/* Colour by name, not by rank.
+
+   The same folder keeps its colour whether it is first or fifth, so drilling in
+   and back does not repaint everything -- the same rule the charts follow. */
+var TREE_COLOURS = ["--s1", "--s2", "--s3", "--s4", "--s5", "--s6", "--s7",
+                    "--s8", "--s9"];
+
+var colourFor = function (name) {
+  var hash = 0;
+  for (var i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) & 0x7fffffff;
+  }
+  return css(TREE_COLOURS[hash % TREE_COLOURS.length]);
+};
+
+var drawTreemap = function (rows, shortly) {
+  if (!rows.length) { return ""; }
+  var W = 1000, H = 460;
+  var items = rows.filter(function (r) { return r.bytes > 0; })
+                  .map(function (r) { return {row: r, value: r.bytes}; });
+  if (!items.length) { return ""; }
+  var boxes = squarify(items, 0, 0, W, H);
+  var total = items.reduce(function (a, i) { return a + i.value; }, 0);
+
+  return '<div class="treemap" style="aspect-ratio:' + W + "/" + H + '">' +
+    boxes.map(function (b) {
+      var row = b.item.row;
+      var name = row.path.split("/").pop();
+      var share = row.bytes / total * 100;
+      // A label needs room. Below it the rectangle is still the right size and
+      // still clickable, and the tooltip says what it is.
+      var roomy = b.w > 90 && b.h > 38;
+      return '<div class="tile" data-into="' + esc(row.path) + '" title="' +
+        esc(shortly(row.path)) + " \u2014 " + esc(fmtBytes(row.bytes / 1024)) +
+        " (" + share.toFixed(1) + "%)" +
+        (row.about ? " \u2014 " + esc(row.about.why) : "") + '" style="left:' +
+        (b.x / W * 100).toFixed(3) + "%;top:" + (b.y / H * 100).toFixed(3) +
+        "%;width:" + (b.w / W * 100).toFixed(3) + "%;height:" +
+        (b.h / H * 100).toFixed(3) + "%;background:" + colourFor(name) + '">' +
+        (roomy
+          ? '<span class="tname">' + esc(name) + "</span><span class=\"tsize\">" +
+            esc(fmtBytes(row.bytes / 1024)) +
+            (row.about && row.about.safe ? " \u00b7 safe" : "") + "</span>"
+          : "") +
+        "</div>";
+    }).join("") + "</div>";
+};
+
+var KIND_COLOURS = ["--s1", "--s2", "--s3", "--s4", "--s5", "--s6", "--s7",
+                    "--s8", "--s9"];
+
+var drawSpace = function (el, d) {
+  SPACE_SCANNING = !!d.running;
+  var vol = d.volume && d.volume.data;
+  var parts = [];
+
+  if (vol) {
+    /* Two bars' worth of truth in one: what your files take, and what the
+       whole disk is holding. They differ by the other volumes in the APFS
+       container -- System, Preboot, Recovery, VM -- which share this disk's
+       free space. Reporting the container's total as this volume's usage is
+       what made a third of the disk look unexplained. */
+    var used = vol.used / vol.total * 100;
+    var boxed = vol.container_used
+      ? vol.container_used / vol.total * 100 : used;
+    parts.push('<div class="volbar">' +
+      '<i style="width:' + boxed.toFixed(1) + '%;background:' +
+      css("--ink3") + ';opacity:.35"></i>' +
+      '<i style="margin-left:-' + boxed.toFixed(1) + '%;width:' +
+      used.toFixed(1) + '%;background:' +
+      css(boxed > 90 ? "--s8" : boxed > 75 ? "--s4" : "--s1") + '"></i></div>' +
+      '<div class="volnote"><b>' + fmtBytes(vol.used / 1024) +
+      "</b> is yours, of " + fmtBytes(vol.total / 1024) + ". <b>" +
+      fmtBytes(vol.free / 1024) + "</b> free." +
+      (vol.container_used && vol.container_used > vol.used
+        ? " The rest of what is used — " +
+          fmtBytes((vol.container_used - vol.used) / 1024) +
+          " — is macOS's own volumes on the same disk."
+        : "") +
+      (boxed > 90 ? " macOS starts behaving oddly below about 10% free." : "") +
+      "</div>");
+  }
+
+  /* Full Disk Access, asked for where it is needed.
+ 
+     macOS refuses some folders outright, and a refusal is indistinguishable
+     from an empty folder -- so without this the Photos library weighs nothing
+     and the totals quietly disagree with the volume. Telling somebody to find
+     the pane themselves is how a permission never gets granted, so the button
+     opens it. */
+  if (d.blocked && d.blocked.length) {
+    parts.push('<div class="spacepart"><h3>macOS is hiding ' +
+      d.blocked.length + " folder" + (d.blocked.length === 1 ? "" : "s") +
+      '</h3><div class="volnote">' +
+      d.blocked.map(esc).join(", ") + " cannot be read, so nothing in " +
+      "them is counted. A Photos library is often the largest thing on a Mac." +
+      "</div>" +
+      /* The switch showing as already on is the confusing case, and it is the
+         common one: the permission is tied to this exact copy of Procwatch, so
+         installing a new version leaves an entry that reads as granted and
+         behaves as denied. Removing and re-adding is what fixes it, and
+         nobody guesses that, so it is written down. */
+      '<div class="volnote" style="margin-top:8px">Already switched on? An ' +
+      "update makes the old permission stale while still showing as granted. " +
+      "Select Procwatch, remove it with the minus button, then add it again." +
+      "</div>" +
+      '<div class="sprow" style="border:0;padding-top:12px">' +
+      '<button id="spacegrant">Open Full Disk Access</button>' +
+      '<span class="why">Turn on Procwatch, then scan again.</span></div></div>');
+  }
+
+  if (d.snapshots && d.snapshots.length) {
+    parts.push('<div class="volnote" style="margin-top:8px;color:var(--ink3)">' +
+      d.snapshots.length + " Time Machine snapshot" +
+      (d.snapshots.length === 1 ? " is" : "s are") + " holding space on this " +
+      "disk. They are counted as used and macOS thins them when it needs to, " +
+      "so they are not yours to delete.</div>");
+  }
+
+  if (d.running) {
+    var p = d.progress || {files: 0, bytes: 0};
+    parts.push('<div class="spacepart"><h3>Walking the disk</h3>' +
+      '<div class="volnote">' + p.files.toLocaleString() + " files, " +
+      fmtBytes(p.bytes / 1024) + " so far. This takes a few minutes, and it " +
+      "keeps going if you close this.</div></div>");
+    el.innerHTML = parts.join("");
+    return;
+  }
+
+  if (!d.scan || !d.scan.finished_ts) {
+    parts.push('<div class="spacepart"><h3>Nothing measured yet</h3>' +
+      '<div class="volnote">Walking your home folder takes a few minutes and ' +
+      'reads every file\u2019s size. Nothing is sent anywhere and nothing is ' +
+      'changed.</div>' +
+      '<div class="sprow" style="border:0;padding-top:12px">' +
+      '<button id="spacescan">Scan the disk</button></div></div>');
+    el.innerHTML = parts.join("");
+    on("spacescan", "click", startScan);
+    return;
+  }
+
+  /* What was measured against what the volume says.
+ 
+     The first thing anybody checks is whether these agree, and they cannot
+     agree exactly: macOS keeps snapshots, refuses to let an ordinary process
+     read a Photos library at all, and the sealed system volume shares the
+     container. Saying so is the difference between a tool with a gap and a tool
+     that is wrong -- the numbers used to stop at 90 GB against 232 GB used and
+     offer no account of the rest. */
+  var recon = d.reconcile;
+  if (recon && recon.missing > 0) {
+    /* Named causes as a list, not one sentence with every possible reason in
+       it. A paragraph reads as "a third of your disk is a mystery"; most of it
+       never was one. None of them carries a size -- a folder that refused to
+       be read weighs nothing here because it refused -- so the difference is
+       stated once and left undivided rather than split by guesswork. */
+    var causes = (recon.parts || []).map(function (p) {
+      return '<div class="sprow"><span class="amt">' +
+        (p.bytes > 0 ? esc(fmtBytes(p.bytes / 1024)) : "—") +
+        '</span><span class="name"><b>' + esc(p.what) + "</b> " +
+        '<span class="why">' + esc(p.why) + "</span></span></div>";
+    }).join("");
+    var others = (recon.others || []).map(function (v) {
+      return esc(v.name || v.role) + " " + esc(fmtBytes(v.used / 1024));
+    }).join(", ");
+    parts.push('<div class="spacepart"><h3>What is not in this picture</h3>' +
+      '<div class="volnote"><b>' + fmtBytes(recon.scanned / 1024) +
+      "</b> measured, against <b>" + fmtBytes(recon.used / 1024) +
+      "</b> on this volume. The difference is <b>" +
+      fmtBytes(recon.missing / 1024) + "</b> (" + recon.percent + "%). " +
+      /* Not "unaccounted for": the causes below are named, they simply cannot
+         be measured from here -- a folder macOS refuses to open weighs nothing
+         precisely because it was refused. Printing the whole difference as a
+         mystery would be as wrong as printing no difference at all. */
+      "Every cause below is real and none of them can be sized from here, so " +
+      "the difference is not divided between them.</div>" +
+      causes +
+      (others
+        ? '<div class="volnote" style="margin-top:8px;color:var(--ink3)">' +
+          "The disk also holds " + others + ". Those volumes are macOS’s " +
+          "and share this disk’s free space, which is why the free space " +
+          "is not what is left after your files.</div>"
+        : "") +
+      (recon.blocked && recon.blocked.length
+        ? '<div class="volnote" style="margin-top:8px;color:var(--ink3)">' +
+          "Not readable: " + recon.blocked.map(esc).join(", ") + "</div>"
+        : "") +
+      "</div>");
+  }
+
+  // ---- by kind, as one bar plus a key
+  var kinds = (d.kinds || []).filter(function (k) { return k.bytes > 0; });
+  var kindTotal = kinds.reduce(function (a, k) { return a + k.bytes; }, 0);
+  if (kinds.length) {
+    parts.push('<div class="spacepart"><h3>By kind</h3><div class="spbar">' +
+      kinds.map(function (k, i) {
+        return '<i style="width:' + (k.bytes / kindTotal * 100).toFixed(2) +
+          "%;background:" + css(KIND_COLOURS[i % KIND_COLOURS.length]) +
+          '" title="' + esc(k.kind) + " " + esc(fmtBytes(k.bytes / 1024)) +
+          '"></i>';
+      }).join("") + "</div><div class=\"spkey\">" +
+      kinds.slice(0, 9).map(function (k, i) {
+        return "<span><i style=\"background:" +
+          css(KIND_COLOURS[i % KIND_COLOURS.length]) + '"></i>' +
+          esc(k.kind) + " " + esc(fmtBytes(k.bytes / 1024)) + "</span>";
+      }).join("") + "</div></div>");
+  }
+
+  // ---- the folders, one level at a time
+  var home = (d.scan.root || "");
+  var shortly = function (path) {
+    return path.indexOf(home) === 0 ? "~" + path.slice(home.length) : path;
+  };
+  var crumb = "";
+  if (SPACE_UNDER && SPACE_UNDER !== home) {
+    crumb = '<div class="spcrumb"><button id="spaceup">\u2191 back</button> ' +
+      esc(shortly(SPACE_UNDER)) + "</div>";
+  }
+  var drilled = !!(SPACE_UNDER && SPACE_UNDER !== home);
+  parts.push('<div class="spacepart"><h3>Where it went</h3>' + crumb +
+    ((d.dirs || []).length
+      ? drawTreemap(d.dirs || [], shortly) +
+        '<div class="volnote" style="margin-top:9px">Area is size. Click to go '
+        + "inside.</div>"
+      : '<div class="volnote">Nothing over 20 MB directly inside this ' +
+        "folder \u2014 the biggest files below are what is here.</div>") +
+    "</div>");
+
+  if ((d.dirs || []).length) {
+  parts.push('<div class="spacepart"><h3>Biggest folders</h3>' +
+    (d.dirs || []).map(function (row) {
+      var about = row.about;
+      var isApp = /\.app$/.test(row.path);
+      return '<div class="sprow' + (isApp ? "" : " spdrill") + '" data-' +
+        (isApp ? "app" : "into") + '="' + esc(row.path) + '">' +
+        '<span class="amt">' + esc(fmtBytes(row.bytes / 1024)) + "</span>" +
+        '<span class="name">' + (isApp ? appIcon(row.path) : "") +
+        "<b>" + esc(row.path.split("/").pop()) + "</b>" +
+        (row.owner ? " \u00b7 " + esc(row.owner) : "") +
+        (about ? ' <span class="why">' + esc(about.why) + "</span>" : "") +
+        "</span>" +
+        (about && about.safe ? '<span class="spsafe">safe to clear</span>' : "") +
+        (isApp ? '<button data-uninstall="' + esc(row.path) +
+                 '">Uninstall</button>'
+          /* Only once inside a folder: the top-level rows are the scan's
+             roots (your home folder, /Applications), and a button whose
+             every press can only be refused is not a button. The refusals
+             for what stays untouchable -- Documents, ~/Library, anything
+             synced -- live in space.trash, and come back as words. */
+          : drilled ? '<button data-trash="' + esc(row.path) +
+                      '">Trash</button>' : "") +
+        "</div>";
+    }).join("") + "</div>");
+  }
+
+  /* Applications, with what each one actually occupies.
+ 
+     The bundle is the number people know and it is usually the smaller half:
+     Claude is a 790 MB application with 11 GB beside it. Both are shown, and
+     Uninstall takes the lot -- which is the whole difference between this and
+     dragging it to the Bin. */
+  if (d.apps && d.apps.length) {
+    parts.push('<div class="spacepart"><h3>Applications</h3>' +
+      '<div class="volnote" style="margin-bottom:8px">Uninstall removes the ' +
+      "application and everything it left outside itself. Dragging one to the " +
+      "Bin leaves the second number behind.</div>" +
+      d.apps.map(function (row) {
+        return '<div class="sprow"><span class="amt">' +
+          esc(fmtBytes(row.bytes / 1024)) + "</span>" +
+          '<span class="name">' + appIcon(row.path) + "<b>" +
+          esc(row.name) + '</b> <span class="why">' +
+          esc(fmtBytes(row.bundle / 1024)) + " application" +
+          (row.leftover > 0
+            ? " \u00b7 " + esc(fmtBytes(row.leftover / 1024)) + " left behind"
+            : "") +
+          /* Two applications of the same name share one row in the scan's
+             per-application totals, so neither gets an estimate. Saying so
+             beats printing a zero that reads as "this one left nothing". */
+          (row.ambiguous
+            ? " \u00b7 another app has this name, so leftovers are counted "
+              + "when you press Uninstall"
+            : "") + "</span></span>" +
+          '<button data-uninstall="' + esc(row.path) + '">Uninstall</button>' +
+          "</div>";
+      }).join("") + "</div>");
+  }
+
+  // ---- the single biggest files, scoped to wherever the view is
+  if (d.files && d.files.length) {
+    parts.push('<div class="spacepart"><h3>' +
+      (drilled ? "Biggest files in " + esc(shortly(SPACE_UNDER))
+               : "Biggest single files") + "</h3>" +
+      d.files.slice(0, 15).map(function (row) {
+        return '<div class="sprow"><span class="amt">' +
+          esc(fmtBytes(row.bytes / 1024)) + '</span><span class="name"><b>' +
+          esc(row.path.split("/").pop()) + "</b> " +
+          '<span class="why">' + esc(shortly(row.path)) + "</span></span>" +
+          '<button data-trash="' + esc(row.path) + '">Trash</button></div>';
+      }).join("") + "</div>");
+  }
+
+  parts.push('<div class="spacepart"><h3>Caches that can be cleared</h3>' +
+    '<div id="spacecaches"><div class="msg">Measuring\u2026</div></div></div>');
+
+  parts.push('<div class="sprow" style="border:0;padding-top:14px">' +
+    '<button id="spacescan">Scan again</button>' +
+    '<span class="why">Last walked ' +
+    esc(shortWhen(d.scan.finished_ts)) + ", " +
+    d.scan.files.toLocaleString() + " files" +
+    (d.scan.stopped ? ", " + esc(d.scan.stopped) : "") + "</span></div>");
+
+  el.innerHTML = parts.join("");
+  on("spacescan", "click", startScan);
+  on("spacegrant", "click", function () {
+    post("/api/settings", {}).then(function () {
+      toast("Turn on Procwatch, then scan again");
+    }).catch(function () { toast("Could not open System Settings", true); });
+  });
+  wireUninstall(el);
+  on("spaceup", "click", function () {
+    var parent = SPACE_UNDER.split("/").slice(0, -1).join("/");
+    SPACE_UNDER = parent.length >= home.length ? parent : null;
+    loadSpace();
+  });
+  Array.prototype.forEach.call(el.querySelectorAll("[data-into]"), function (row) {
+    row.addEventListener("click", function (e) {
+      if (e.target.closest("button")) { return; }
+      SPACE_UNDER = row.getAttribute("data-into");
+      loadSpace();
+    });
+  });
+  wireTrash(el);
+  loadCaches();
+};
+
+/* An application's own icon, from its bundle.
+
+   Shown at its natural size and nothing else: this is a list of
+   applications, and the picture on the row is how somebody finds the one
+   they meant faster than by reading. A bundle with no icon renders nothing
+   rather than a placeholder, because the name is right beside it. */
+var appIcon = function (path, size) {
+  if (!path || !/\.app$/.test(path)) { return ""; }
+  return '<img class="appicon" alt="" loading="lazy" src="/api/icon?size=' +
+    (size || 64) + "&path=" + encodeURIComponent(path) +
+    '" onerror="this.remove()">';
+};
+
+/* Most of the page knows an application by name alone -- the charts, the
+   timeline, the table, the search results. The server matches the name
+   against what is installed; anything it cannot match removes itself, so a
+   process that is not an application costs nothing. */
+var appIconByName = function (name, size, extra) {
+  if (!name) { return ""; }
+  return '<img class="appicon' + (extra ? " " + extra : "") +
+    '" alt="" loading="lazy" src="/api/icon?size=' + (size || 64) +
+    "&app=" + encodeURIComponent(name) + '" onerror="this.remove()">';
+};
+
+/* Removing an application, and everything it left behind.
+ 
+   Dragging an app to the Bin takes the bundle and leaves the rest, which is
+   usually the larger half: Arc is an 877 MB bundle with 3.1 GB of caches,
+   containers and saved state outside it.
+ 
+   The list is shown before anything happens, itemised and totalled, because
+   this is the most destructive thing on the page and a confirmation nobody can
+   check is a confirmation nobody reads. */
+var wireUninstall = function (root) {
+  Array.prototype.forEach.call(root.querySelectorAll("[data-uninstall]"),
+    function (button) {
+      button.addEventListener("click", function (e) {
+        e.stopPropagation();
+        uninstall(button.getAttribute("data-uninstall"));
+      });
+    });
+};
+
+var uninstall = function (path) {
+  fetch(api("/api/app", {path: path})).then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.error) { toast(d.error, true); return; }
+      var leftovers = d.items.filter(function (i) { return i.kind !== "app"; });
+      var lines = d.items.map(function (i) {
+        return "  " + fmtBytes(i.bytes / 1024) + "   " + i.display;
+      }).join("\n");
+      var warning = d.running
+        ? "\n\n" + d.app.name + " is running. Quit it first, or its files " +
+          "will be recreated as it exits."
+        : "";
+      if (!window.confirm(
+          "Move " + d.app.name + " and everything it left behind to the Trash?" +
+          "\n\n" + lines + "\n\n" + fmtBytes(d.bytes / 1024) + " in total, " +
+          fmtBytes(d.leftover_bytes / 1024) + " of it outside the application." +
+          warning + "\n\nNothing is deleted until you empty the Trash.")) {
+        return;
+      }
+      sendToTrash(d.items.map(function (i) { return i.path; }),
+                  d.app.name + " and " + leftovers.length + " leftovers");
+    })
+    .catch(function () { toast("Could not read that application", true); });
+};
+
+var startScan = function () {
+  post("/api/scan", {}).then(function () {
+    SPACE_SCANNING = true;
+    loadSpace();
+  }).catch(function () { toast("Could not start the scan", true); });
+};
+
+var loadCaches = function () {
+  var box = document.getElementById("spacecaches");
+  if (!box) { return; }
+  fetch(api("/api/caches")).then(function (r) { return r.json(); })
+    .then(function (d) {
+      var list = d.caches || [];
+      if (!list.length) {
+        box.innerHTML = '<div class="volnote">Nothing on the safe list is ' +
+          "taking any space.</div>";
+        return;
+      }
+      var total = list.reduce(function (a, c) { return a + c.bytes; }, 0);
+      box.innerHTML = list.map(function (c) {
+        return '<div class="sprow"><span class="amt">' +
+          esc(fmtBytes(c.bytes / 1024)) + '</span><span class="name"><b>' +
+          esc(c.path) + '</b> <span class="why">' + esc(c.why) +
+          "</span></span>" +
+          '<button data-trash="' + esc(c.full_path) + '">Trash</button></div>';
+      }).join("") +
+        '<div class="sprow" style="border-top:1px solid var(--line)">' +
+        '<span class="amt">' + esc(fmtBytes(total / 1024)) + "</span>" +
+        '<span class="name">all of them</span>' +
+        '<button data-trash-all="1">Trash all</button></div>';
+      wireTrash(box);
+      var all = box.querySelector("[data-trash-all]");
+      if (all) {
+        all.addEventListener("click", function () {
+          sendToTrash(list.map(function (c) { return c.full_path; }),
+                      list.length + " cache folders");
+        });
+      }
+    })
+    .catch(function () {
+      box.innerHTML = '<div class="msg">Could not measure the caches.</div>';
+    });
+};
+
+var wireTrash = function (root) {
+  Array.prototype.forEach.call(root.querySelectorAll("[data-trash]"),
+    function (button) {
+      button.addEventListener("click", function (e) {
+        e.stopPropagation();
+        sendToTrash([button.getAttribute("data-trash")],
+                    button.getAttribute("data-trash").split("/").pop());
+      });
+    });
+};
+
+/* Into the Trash, and said plainly.
+ 
+   Nothing is destroyed: the files go where a mistake is a drag back rather than
+   a restore from a backup somebody may not have. The confirmation says so, and
+   says what is being moved, because a dialog that only says "are you sure" is
+   answered without being read. */
+var sendToTrash = function (paths, what) {
+  if (!paths.length) { return; }
+  if (!window.confirm("Move " + what + " to the Trash?\n\n" +
+      "Nothing is deleted until you empty it.")) { return; }
+  post("/api/trash", {paths: paths}).then(function (d) {
+    /* An answer without a result for each path is a refusal, not a success.
+       Reading it as one is how "Moved to the Trash" appeared over an
+       application that had not moved: a malformed or empty request comes back
+       as an `error` with no `results`, and an empty list filters down to
+       nothing wrong. (A cross-origin refusal is not JSON at all and lands in
+       the catch below.) */
+    if (!d || d.error || !d.results || !d.results.length) {
+      toast((d && d.error) || "Nothing was moved", true);
+      loadSpace();
+      loadStorage();
+      return;
+    }
+    var kept = d.results.filter(function (r) { return !r.ok; });
+    if (kept.length) {
+      toast(kept[0].error || "Some could not be moved", true);
+    } else {
+      toast("Moved to the Trash");
+    }
+    loadSpace();
+    loadStorage();
+  }).catch(function () { toast("Could not reach the recorder", true); });
+};
+
+/* No handler for spaceopen any more: it is a link to /disk, and intercepting
+   a link to reopen the sheet it replaced is how you ship both. */
 
 /* ---- disk space by application ---------------------------------------- */
 var renderDevices = function () {
@@ -3584,6 +4471,17 @@ var loadDevices = function () {
 /* Switching machine re-reads everything, because nothing on screen came from
    the new one -- and adopts its clock first, or every window asked for would
    be hours away from any data it has. */
+/* The monitor is a separate page, so it cannot read the device from a
+   variable in this one. The link carries it, and the monitor relays its
+   reads to that machine -- without this, switching to another Mac and
+   opening the monitor quietly showed you your own. */
+var pointMonitorAtDevice = function () {
+  var link = document.querySelector(".netmonlink");
+  if (!link) { return; }
+  link.href = DEVICE ? "/net?device=" + encodeURIComponent(DEVICE) : "/net";
+  link.textContent = DEVICE ? "Live monitor \u00b7 " + DEVICE : "Live monitor";
+};
+
 var selectDevice = function (name) {
   DEVICE = name || null;
   CLOCK_SKEW = 0;
@@ -3591,6 +4489,7 @@ var selectDevice = function (name) {
   DATA = null;
   banner(DEVICE ? "Reading " + DEVICE + "\u2026" : "");
   renderDevices();
+  pointMonitorAtDevice();
   fetch(api("/api/info")).then(function (r) { return r.json(); })
     .then(function (m) {
       if (m && m.error) { throw new Error(m.error); }
@@ -3688,7 +4587,11 @@ var loadStorage = function () {
           "</span>";
       }).join("") + "</div>" +
       apps.map(function (a, i) {
-        return '<div class="storagerow" data-storage="' + i + '"><b>' +
+        // The icon goes inside the name, not beside it: this row is a
+        // three-column grid, and a fourth child pushes the size and the bar
+        // onto lines of their own.
+        return '<div class="storagerow" data-storage="' + i + '">' +
+          "<b>" + appIconByName(a.app, 32, "tiny") +
           esc(a.app) + "</b>" +
           '<span class="amt">' + esc(fmtBytes(a.total / 1024)) + "</span>" +
           '<span class="storagebar">' + parts.map(function (p) {
@@ -3809,6 +4712,184 @@ var postAlert = function (body) {
     })
     .catch(function () { toast("Could not change the rule", true); });
 };
+
+/* ---- keeping procwatch itself current ----------------------------------
+
+   The server does the asking (GitHub is another origin, and it caches the
+   answer), this side only shows the verdict. Always this server, never the
+   relay: the question is about the copy serving this page, not a peer's. */
+var UPGRADE = null;
+
+var showUpgrade = function (d) {
+  UPGRADE = d || null;
+  var badge = document.getElementById("upbadge");
+  if (badge && !badge.dataset.busy) {
+    badge.hidden = !(d && d.newer);
+    if (d && d.newer) {
+      badge.textContent = "Update · v" + d.latest;
+      badge.classList.remove("armed");
+    }
+  }
+  var status = document.getElementById("upstatus");
+  if (status && d) {
+    status.textContent = d.error ? d.error
+      : d.newer ? "v" + d.latest + " is available — press Update in the "
+        + "toolbar to install"
+      : "Up to date (v" + d.current + ")";
+  }
+};
+
+var checkUpgrade = function (force) {
+  return fetch("/api/upgrade" + (force ? "?force=1" : ""))
+    .then(function (r) { return r.json(); })
+    .then(showUpgrade)
+    .catch(function () { /* offline; the badge just stays hidden */ });
+};
+
+var installUpgrade = function () {
+  var badge = document.getElementById("upbadge");
+  var status = document.getElementById("upstatus");
+  if (badge) { badge.dataset.busy = "1"; badge.textContent = "Updating…"; }
+  if (status) { status.textContent = "Updating…"; }
+  post("/api/upgrade", {}).then(function (d) {
+    if (badge) { delete badge.dataset.busy; badge.classList.remove("armed"); }
+    if (!d || !d.ok) {
+      toast((d && d.error) || "The update did not install", true);
+      showUpgrade(UPGRADE);
+      return;
+    }
+    if (badge) { badge.hidden = true; }
+    var landed = d.to ? "v" + d.to : "the latest version";
+    if (status) { status.textContent = "Updated to " + landed; }
+    banner("Updated to " + landed +
+           " — quit and reopen Procwatch to finish");
+  }).catch(function () {
+    if (badge) { delete badge.dataset.busy; }
+    showUpgrade(UPGRADE);
+    toast("Could not reach the recorder", true);
+  });
+};
+
+on("upbadge", "click", function () {
+  var badge = document.getElementById("upbadge");
+  if (badge.dataset.busy) { return; }
+  if (!badge.classList.contains("armed")) {
+    // The first press arms it and names the version; a second installs.
+    // Left alone, it disarms rather than waiting forever for a press that
+    // may have been a stray.
+    badge.classList.add("armed");
+    badge.textContent = "Install v" + (UPGRADE && UPGRADE.latest) + "?";
+    setTimeout(function () {
+      if (!badge.dataset.busy && badge.classList.contains("armed")) {
+        showUpgrade(UPGRADE);
+      }
+    }, 10000);
+    return;
+  }
+  installUpgrade();
+});
+
+on("upcheck", "click", function () {
+  var status = document.getElementById("upstatus");
+  if (status) { status.textContent = "Checking…"; }
+  checkUpgrade(true);
+});
+
+checkUpgrade();
+// Long-lived pages (the menu bar window) get told within a day rather than
+// only on reload; the server's cache decides how often GitHub is asked.
+setInterval(function () { checkUpgrade(); }, 6 * 3600 * 1000);
+
+/* ---- one-press cleanup -------------------------------------------------
+
+   The plan is fetched and shown first: this is the disk sheet's safe-cache
+   list plus removed applications' leavings, gathered behind one button, and
+   a confirmation nobody can check is a confirmation nobody reads. */
+on("cleanup", "click", function () {
+  fetch("/api/cleanup").then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d || !d.groups || !d.groups.length) {
+        toast("Nothing worth cleaning was found");
+        return;
+      }
+      var lines = d.groups.map(function (g) {
+        return g.title + ":\n" + g.items.map(function (i) {
+          return "  " + fmtBytes(i.bytes / 1024) + "   " +
+            (i.display || i.path);
+        }).join("\n");
+      }).join("\n\n");
+      if (!window.confirm("Move all of this to the Trash?\n\n" + lines +
+          "\n\n" + fmtBytes(d.bytes / 1024) + " in total. Caches refill as " +
+          "applications run.\nNothing is deleted until you empty the Trash.")) {
+        return;
+      }
+      banner("Cleaning up…");
+      // The paths that were on screen when Yes was pressed. The server
+      // recomputes its own plan and takes the intersection, so neither a
+      // stale page nor a fresh surprise decides alone what moves.
+      var confirmed = d.groups.reduce(function (acc, g) {
+        return acc.concat(g.items.map(function (i) { return i.path; }));
+      }, []);
+      post("/api/cleanup", {paths: confirmed}).then(function (done) {
+        banner("");
+        if (!done || !done.results) {
+          toast((done && done.error) || "Nothing was moved", true);
+          return;
+        }
+        var kept = done.results.filter(function (x) { return !x.ok; });
+        if (kept.length) {
+          toast(kept[0].error || "Some could not be moved", true);
+        } else {
+          toast(fmtBytes(done.bytes / 1024) + " moved to the Trash");
+        }
+        loadSpace();
+        loadStorage();
+      }).catch(function () {
+        banner("");
+        toast("Could not reach the recorder", true);
+      });
+    })
+    .catch(function () { toast("Could not measure what to clean", true); });
+});
+
+/* ---- arriving with a destination ---------------------------------------
+
+   A notification press hands the page a fragment naming what the news was
+   about: #why for a finding, #events for an update, #find=Chrome for an
+   alert. Read once and then cleared -- a hash that reopens a panel on every
+   reload is a surprise, not a destination. */
+var followHash = function () {
+  // The test harness loads this page with no location at all.
+  if (typeof location === "undefined") { return; }
+  var h = decodeURIComponent((location.hash || "").slice(1));
+  if (!h) { return; }
+  if (typeof history !== "undefined" && history.replaceState) {
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+  if (h === "why") {
+    var t = document.getElementById("whytoggle");
+    if (t) { t.click(); }
+  } else if (h === "settings") {
+    openSettings(true);
+  } else if (h === "space") {
+    // The old #space deep link still works; it just lands on the page the
+    // sheet became rather than on a sheet that is no longer there.
+    location.href = "/disk";
+  } else if (h === "events") {
+    var card = document.getElementById("eventscard");
+    var body = document.getElementById("eventsbody");
+    var tog = document.getElementById("eventstoggle");
+    if (body && body.hidden && tog) { tog.click(); }
+    if (card) { card.scrollIntoView({behavior: "smooth"}); }
+  } else if (h.indexOf("find=") === 0) {
+    var q = document.getElementById("q");
+    if (q) { q.value = h.slice(5); q.focus(); runSearch(q.value); }
+  }
+};
+window.addEventListener("hashchange", followHash);
+// After the first paint: the panels this opens are drawn by the load that is
+// still in flight when the fragment arrives.
+setTimeout(followHash, 400);
 
 on("aladd", "click", function () {
   var sustain = parseDuration(document.getElementById("alsustain").value);
@@ -4130,6 +5211,8 @@ var applyFindingsPref = function () {
     notify.value = PREFS.findings_notify;
     notify.disabled = !on;
   }
+  var geo = document.getElementById("setgeo");
+  if (geo && PREFS.geo_lookup !== undefined) { geo.value = PREFS.geo_lookup; }
 };
 
 var loadPrefs = function () {
@@ -4157,6 +5240,9 @@ on("setfindings", "change", function (e) {
 });
 on("setnotify", "change", function (e) {
   savePrefs({findings_notify: e.target.value});
+});
+on("setgeo", "change", function (e) {
+  savePrefs({geo_lookup: e.target.value});
 });
 
 on("setrange", "change", function (e) {
@@ -4658,6 +5744,7 @@ var renderLive = function () {
             '" aria-label="Show the processes in ' + esc(e.exe) + '">' +
             (open ? "\u25bc" : "\u25b6") + "</button>"
           : "") +
+        appIconByName(e.app || e.exe, 32, "tiny") +
         "<b>" + esc(e.exe) + "</b>" + flag +
         (e.args ? '<span class="sub">' + esc(e.args) + "</span>"
                 : (expandable ? '<span class="sub">' + g.kids.length +
@@ -4880,6 +5967,21 @@ var restartLivePoll = function () {
   if (SETTINGS.live > 0) { livePoll = setInterval(loadLive, SETTINGS.live); }
 };
 restartLivePoll();
+
+/* Reopening the panel returns you to where you were.
+
+   The menu bar keeps this page loaded rather than fetching it again, so the
+   scroll position, the open cards and anything half-read are still there.
+   What is not still there is the data, which stopped being current the
+   moment the panel closed -- so the host calls this on the way back in and
+   everything that polls catches up at once. */
+window.procwatchShown = function () {
+  try {
+    pollForNewData();
+    loadLive();
+    if (findingsOn()) { loadWhy(); }
+  } catch (err) { /* a refresh that fails leaves the last reading up */ }
+};
 </script>
 </body>
 </html>

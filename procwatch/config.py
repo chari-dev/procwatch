@@ -10,7 +10,7 @@ import os
 # by its own correct rule an application whose declared version has not changed
 # has not updated. The tool that reports on what your applications do after an
 # update was blind to exactly one application: itself.
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 
 Tier = collections.namedtuple("Tier", "name seconds retain_seconds")
 

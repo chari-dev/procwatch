@@ -41,6 +41,19 @@ class TestRoutesExist(unittest.TestCase):
                           "%s is handled but not behind the guard" % path)
 
 
+class TestNetworkMonitorPage(unittest.TestCase):
+    def test_the_page_exists_and_is_served(self):
+        import inspect
+        page = server.netmonitor_html()
+        self.assertIn("Network Monitor", page)
+        self.assertIn("/api/nettraffic", page)
+        # And do_GET actually routes to it.
+        self.assertIn('"/net"', inspect.getsource(server.Handler.do_GET))
+
+    def test_the_dashboard_links_to_it(self):
+        self.assertIn('href="/net"', server.dashboard_html())
+
+
 class TestSharedApiSurface(unittest.TestCase):
     def test_api_get_covers_the_read_paths_the_dashboard_uses(self):
         # These are the paths the page and any peer ask for. One missing here
