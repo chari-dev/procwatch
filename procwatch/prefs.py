@@ -36,11 +36,18 @@ DEFAULTS = {
     # findings and no notifications -- and the sampler skips the work.
     "findings_enabled": "1",
     "findings_notify": "causes",
+    # Whether the network monitor may ask a lookup service where a server is.
+    # The only setting here that sends anything off this Mac, which is why it
+    # is a setting at all: peer addresses go to ipwho.is, and with it off the
+    # map falls back to what server names give away. Private addresses are
+    # never sent either way.
+    "geo_lookup": "1",
 }
 
 CHOICES = {
     "findings_enabled": ("0", "1"),
     "findings_notify": NOTIFY_CHOICES,
+    "geo_lookup": ("0", "1"),
 }
 
 

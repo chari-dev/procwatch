@@ -366,6 +366,13 @@ def history(conn, since=None, now=None):
 def prune(conn, now=None):
     init(conn)
     now = int(time.time()) if now is None else now
-    keep = max([t.keep for t in config.TIERS if t.keep] or [365 * 86400])
+    # retain_seconds, which is what the field is called. `t.keep` raised
+    # AttributeError on every tick, and main.py logs that failure rather than
+    # letting it kill the sample -- so the only symptom was a line in a log
+    # nobody reads, repeated ten thousand times, while the hourly version
+    # scan silently reran every thirty seconds because the tick that marks it
+    # done never got there.
+    keep = max([t.retain_seconds for t in config.TIERS if t.retain_seconds]
+               or [365 * 86400])
     with conn:
         conn.execute("DELETE FROM app_version WHERE last_ts < ?", (now - keep,))

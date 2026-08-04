@@ -165,6 +165,10 @@ MEANINGS = {
     "security-update": ("Apple updated its malware definitions",
                         "Routine, silent, and several times a month."),
     "app-update": ("was updated", ""),
+    "procwatch-update": ("was updated",
+                         "Procwatch itself -- the recorder and this "
+                         "dashboard. Recorded the first time the new "
+                         "version ran."),
     "alert": ("crossed a limit you set", ""),
     "gap": ("Nothing was recorded",
             "The recorder was not running -- the Mac was off, asleep, or "
@@ -479,12 +483,32 @@ def _from_database(conn, since=0):
     for app, version, first_ts in _each(
             conn, "SELECT app, version, first_ts FROM app_version "
                   "ORDER BY app, first_ts"):
+        # Procwatch's own updates come from self_version below, which also
+        # covers the installs this scanner never sees. Reporting them from
+        # here too put the same update on the timeline twice.
+        if app == "Procwatch":
+            continue
         if app in seen and version != seen[app] and first_ts >= since:
             out.append({"ts": first_ts, "kind": "app-update", "subject": app,
                         "detail": "%s to %s" % (seen[app], version),
                         "severity": "change", "source": "versions",
                         "key": "appver:%s:%s" % (app, first_ts)})
         seen[app] = version
+
+    # Procwatch's own updates, recorded by selfupdate the first time a new
+    # version runs. Same discovery rule as above: the first version ever seen
+    # is an install, not an update.
+    prior = None
+    for version, first_ts in _each(
+            conn, "SELECT version, first_ts FROM self_version "
+                  "ORDER BY first_ts"):
+        if prior is not None and version != prior and first_ts >= since:
+            out.append({"ts": first_ts, "kind": "procwatch-update",
+                        "subject": "Procwatch",
+                        "detail": "%s to %s" % (prior, version),
+                        "severity": "change", "source": "selfupdate",
+                        "key": "selfver:%s:%s" % (version, first_ts)})
+        prior = version
     return out
 
 

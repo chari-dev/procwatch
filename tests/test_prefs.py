@@ -18,7 +18,8 @@ def _conn():
 class TestDefaults(unittest.TestCase):
     def test_a_fresh_database_has_the_defaults(self):
         self.assertEqual(prefs.all_prefs(_conn()),
-                         {"findings_enabled": "1", "findings_notify": "causes"})
+                         {"findings_enabled": "1", "findings_notify": "causes",
+                          "geo_lookup": "1"})
 
     def test_findings_are_on_to_begin_with(self):
         # The feature is the point of the program; it is opt-out, not opt-in.

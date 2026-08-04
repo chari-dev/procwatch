@@ -323,7 +323,9 @@ class ShareHandler(BaseHTTPRequestHandler):
         return "", "none"
 
     def _wants_page(self, path):
-        return path in ("/", "/index.html")
+        # /net counts as a page so that arriving there without a key asks for
+        # one, rather than answering a browser with a line of JSON.
+        return path in ("/", "/index.html", "/net")
 
     def do_GET(self):
         who = self.client_address[0]
@@ -352,9 +354,29 @@ class ShareHandler(BaseHTTPRequestHandler):
         _note_success(who)
 
         if page:
+            if parsed.path == "/net":
+                return self._send_monitor(offered, remember=source == "query")
             return self._send_dashboard(offered, remember=source == "query")
 
         from . import server                       # imported late: server imports us
+        # The two things the monitor needs that are not API answers. Both are
+        # read-only by nature -- an outline of the world and a picture of an
+        # application -- so they belong on this side of the line.
+        if parsed.path == "/world.js":
+            try:
+                return self._send_asset(server.world_js().encode(),
+                                        "application/javascript")
+            except OSError:
+                return self._send(404, json.dumps({"error": "no world data"}))
+        if parsed.path == "/api/icon":
+            from . import icons
+            where = params.get("path", [""])[0] or \
+                icons.bundle_for_name(params.get("app", [""])[0])
+            body = icons.png(where, int(params.get("size", ["64"])[0] or 64))
+            if body is None:
+                return self._send(404, json.dumps({"error": "no icon"}))
+            return self._send_asset(body, "image/png")
+
         conn = db.connect(config.DB_PATH)
         try:
             payload = server.api_get(conn, parsed.path, params)
@@ -397,6 +419,39 @@ class ShareHandler(BaseHTTPRequestHandler):
                             "%s=%s; Path=/; SameSite=Lax; HttpOnly" % (COOKIE, key)))
         self._send_html(200, page, extra=headers)
 
+    def _send_monitor(self, key, remember):
+        """The network monitor, marked read-only.
+
+        Same page as the local server sends, for the same reason as the
+        dashboard: one monitor, not a second copy to keep in step. What it
+        loses here is the off switch, which suspends an application -- there
+        is no do_POST on this side to carry it, and this port exists to be
+        the half that cannot act.
+        """
+        try:
+            from . import server
+            page = server.netmonitor_html()
+        except (OSError, RuntimeError):
+            return self._send(500, json.dumps({"error": "no monitor installed"}))
+        page = page.replace("__PROCWATCH_TOKEN__", "")
+        page = page.replace("<head>",
+                            '<head>\n<meta name="procwatch-readonly" content="1">', 1)
+        headers = []
+        if remember:
+            headers.append(("Set-Cookie",
+                            "%s=%s; Path=/; SameSite=Lax; HttpOnly" % (COOKIE, key)))
+        self._send_html(200, page, extra=headers)
+
+    def _send_asset(self, payload, kind):
+        """A picture or a script the pages need. Cached: neither changes."""
+        self.send_response(200)
+        self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "max-age=86400")
+        self._cors()
+        self.end_headers()
+        self.wfile.write(payload)
+
     def _send_html(self, code, body, extra=()):
         payload = body.encode()
         self.send_response(code)
@@ -422,6 +477,12 @@ def serve(port=DEFAULT_PORT, host="0.0.0.0", reset=False):
         conn.close()
     httpd = ThreadingHTTPServer((host, port), ShareHandler)
     httpd.share_key = secret
+    # The network monitor reads its figures from a background nettop pass,
+    # and only the local server had ever started one -- so a shared machine
+    # answered /api/nettraffic with an empty list forever, and the monitor
+    # somebody opened over the network showed a globe with nothing on it.
+    from . import live
+    live.start_network_refresh()
     where = local_address() or "this-mac-address"
     print("Sharing this Mac's history on port %d." % port)
     print("\nFrom a phone or tablet on the same network, open:")
